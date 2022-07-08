@@ -35,7 +35,7 @@ app:
 
 archive:
 	make todo
-	$(pack) $(srcarcname) $(srcs) Makefile *.geany $(docs) .git
+	$(pack) $(srcarcname) $(srcs) Makefile *.geany $(docs)
 
 distrib:
 	make app
