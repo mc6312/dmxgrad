@@ -6,9 +6,12 @@
     Кривой прототип кривого костыля для кормления DMX512-совместимых
     устройств байтами из выхлопа скриптов на питоне.
 
-    Внимание! Это поделие создано для баловства, и категорически
-    НЕ предназначено для управления взаправдашним сценическим
-    оборудованием на взаправдашней сцене.
+    Внимание!
+    1. Это поделие создано для баловства, и категорически НЕ предназначено
+       для управления взаправдашним сценическим оборудованием на взаправдашней
+       сцене.
+    2. Потроха поделия могут быть в любой момент изменены до полной
+       неузнаваемости и несовместимости с предыдущей версии.
 
     Copyright 2022 MC-6312
 
@@ -38,6 +41,49 @@ from PIL import Image
 
 import array
 from ola.ClientWrapper import ClientWrapper
+
+from colorsys import hls_to_rgb
+
+
+# максимальное значение выдаваемых генераторами данных
+MAX_VALUE = 255
+
+
+def rgb_from_hls(h, l, s):
+    """Преобразование значений hue, lightness и saturation
+    (в диапазоне 0..1.0) в кортеж с целыми значениями red, green и blue
+    в диапазоне 0..MAX_VALUE (т.к. устройства DMX512 жрут байты)."""
+
+    #TODO здесь и в прочих функциях и методах: возможно, следует добавить более строгую проверку входных параметров
+
+    return tuple(map(lambda v: int(v * MAX_VALUE), hls_to_rgb(h, l, s)))
+
+
+def rgb_from_str(s):
+    """Преобразование значения цвета из строки вида "#RRGGBB", "#RGB",
+    "RRGGBB" или "RGB" в кортеж из трёх целых в диапазоне 0..MAX_VALUE."""
+
+    __E_RGB = 'rgb_from_str(s): invalid format of "s" parameter'
+
+    sl = len(s)
+    if sl not in (3, 4, 6, 7):
+        raise ValueError(__E_RGB)
+
+    if sl in (4, 7):
+        if s[0] != '#':
+            raise ValueError(__E_RGB)
+        so = 1
+    else:
+        so = 0
+
+    pl = 1 if sl in (3, 4) else 2
+
+    ret = []
+    for ix in range(3):
+        six = so + ix * pl
+        ret.append(int(s[six:six + pl], 16))
+
+    return tuple(ret)
 
 
 def unwrap_values(l):
@@ -215,14 +261,12 @@ class GradGen():
     Поля класса (могут быть перекрыты и/или дополнены классом-потомком):
         DEFAULT_MODE - значение, которое будет использовано
                       счётчиком положения, если ему не передавать соотв.
-                      параметр; по умолчанию - GradPosition.STOP;
-        MAX_VALUE   - максимальное возвращаемое значение.
+                      параметр; по умолчанию - GradPosition.STOP.
 
     Поля экземпляров класса (могут быть дополнены классом-потомком):
         position    - экземпляр GradPosition."""
 
     DEFAULT_MODE = GradPosition.STOP
-    MAX_VALUE = 255
 
     def __init__(self, **kwargs):
         """Параметры: см. список полей экземпляра класса.
@@ -320,7 +364,7 @@ class SineGradGen(BufferedGradGen):
 
         sinCf = 2 * pi / self.position.length
         sinOffset = pi / 2
-        middle = self.MAX_VALUE / 2.0
+        middle = MAX_VALUE / 2.0
 
         for i in range(self.position.length):
             self.buffer.append(int(middle - middle * sin(sinOffset + i * sinCf)))
@@ -331,32 +375,62 @@ class LineGradGen(BufferedGradGen):
     Может быть использован для генерации пилообразных (с mode=GradPosition.REPEAT)
     и треугольных волн (mode=GradPosition.MIRROR).
 
-    Параметры:
-        fadeout - булевское значение;
-                  при fadeout==True генерируются значения от максимального
-                  к минимальному,
-                  при fadeout==False (по умолчанию) - от минимального
-                  к максимальному."""
+    Поля:
+        channelsFrom, channelsTo  - кортежи из одного и более целых чисел
+            в диапазоне 0..MAX_VALUE (в данном случае "цвет" - понятие
+            условное, т.к. речь идёт о кормлении байтами DMX-512, а там
+            до 512 каналов).
+        Количество значений в переходе управляется полем position.length."""
 
     def __init__(self, **kwargs):
-        self.fadeout = kwargs.get('fadeout', False)
+        """Параметры (в дополнение к "наследственным"):
+            channelsFrom, channelsTo (см. описания одноимённых полей);
+                их значения могут быть указаны в виде кортежей или преобразованы
+                из значений цветов вызовами rgb_from_hls(), rgb_from_str()."""
+
+        def __channels(parName, defv, cklen):
+            c = kwargs.get(parName, defv)
+
+            __ERR = '%s.__init__(): parameter "%s" is invalid - %%s' % (self.__class__.__name__, parName)
+
+            if not isinstance(c, tuple):
+                raise ValueError(__ERR % 'invalid type')
+
+            if cklen is not None and len(c) != cklen:
+                raise ValueError(__ERR % 'invalid length')
+
+            for ix, v in enumerate(c, 1):
+                if not isinstance(v, int):
+                    raise ValueError(__ERR % 'invalid type of element #%d' % ix)
+
+                if v < 0 or v > MAX_VALUE:
+                    raise ValueError(__ERR % 'element #%d out of range' % ix)
+
+            return c
+
+        self.channelsFrom = __channels('channelsFrom', (0,), None)
+        self.channelsTo = __channels('channelsTo', (MAX_VALUE,), len(self.channelsFrom))
 
         super().__init__(**kwargs)
 
     def reset(self):
         super().reset()
 
-        dy = self.MAX_VALUE / (self.position.length - 1)
+        _len = self.position.length - 1
+        _chans = len(self.channelsFrom)
 
-        if self.fadeout:
-            v = self.MAX_VALUE
-            dy = -dy
-        else:
-            v = 0.0
+        deltas = []
+        cvals = []
+
+        for c in range(_chans):
+            deltas.append((self.channelsTo[c] - self.channelsFrom[c]) / _len)
+            cvals.append(self.channelsFrom[c])
 
         for i in range(self.position.length):
-            self.buffer.append(int(v))
-            v += dy
+            self.buffer.append(tuple(map(int, cvals)))
+
+            for c in range(_chans):
+                cvals[c] += deltas[c]
 
 
 class ImageGradGen(BufferedGradGen):
@@ -470,7 +544,7 @@ class SquareGradGen(BufferedGradGen):
     DEFAULT_MODE = GradPosition.REPEAT
 
     LOW_VALUE = 0
-    HIGH_VALUE = BufferedGradGen.MAX_VALUE
+    HIGH_VALUE = MAX_VALUE
 
     #TODO присобачить реализацию длительностей импульса и паузы
 
@@ -718,7 +792,7 @@ def __debug_random():
     allgen.add_subgen(LineGradGen(length=5, mode=GradPosition.MIRROR),
         SineGradGen(length=6, mode=GradPosition.REPEAT),
         ConstantGradGen(value=111),
-        SquareGradGen(length=6, lowv=0, highv=GradGen.MAX_VALUE),
+        SquareGradGen(length=6, lowv=0, highv=MAX_VALUE),
         BufferedGradGen(clearBuf=False, mode=GradPosition.REPEAT,
             data=((0, 0, 0),(128, 128, 128), (255, 255, 255))))
     allgen.reset()
@@ -730,10 +804,19 @@ def __debug_random():
         print(unwrap_values(allgen.get_next_value()))
 
 
+def __debug_LineGradGen():
+    lgg = LineGradGen(length=10, channelsFrom=rgb_from_hls(0, 0, 0), channelsTo=rgb_from_hls(0, 0.5, 1))
+    #lgg = LineGradGen(length=10, channelsFrom=(0, 0), channelsTo=(128, 255))
+    print(lgg)
+    for g in lgg.buffer:
+        print(g)
+
+
 if __name__ == '__main__':
     print('[debugging %s]' % __file__)
 
     #__debug_GradPosition()
     #__debug_GradGen()
-    __debug_random()
+    __debug_LineGradGen()
+    #__debug_random()
 
