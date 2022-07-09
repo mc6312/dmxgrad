@@ -29,7 +29,7 @@
     along with this program.  If not, see <http://www.gnu.org/licenses/>."""
 
 
-REVISION = 3
+REVISION = 4
 
 
 from math import sin, pi

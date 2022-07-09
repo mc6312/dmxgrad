@@ -10,7 +10,7 @@ distribdir = ~/downloads
 #
 basename = dmxgrad
 srcversion = dmxgrad
-version = "r$(shell python3 -c 'from $(srcversion) import REVISION; print(REVISION)')"
+version = r$(shell python3 -c 'from $(srcversion) import REVISION; print(REVISION)')
 branch = $(shell git symbolic-ref --short HEAD)
 title = $(basename)
 title_version = "$(title) r$(version)"
