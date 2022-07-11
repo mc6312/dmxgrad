@@ -29,7 +29,7 @@
     along with this program.  If not, see <http://www.gnu.org/licenses/>."""
 
 
-REVISION = 5
+REVISION = 6
 
 
 from math import sin, pi
@@ -104,6 +104,30 @@ def rgb_from_str(s):
         ret.append(int(s[six:six + pl], 16))
 
     return tuple(ret)
+
+
+def get_supported_image(fromimg, grayscale=False):
+    """Проверяет формат изображения, при необходимости создаёт
+    новый экземпляр в совместимом с этим модулем формате - L или RGB(A).
+
+    Параметры:
+        fromimg     - экземпляр класса изображения, созданный с помощью
+                      Image.open;
+        grayscale   - булевское значение; если True - исходное изображение
+                      конвертируется в шкалу серого, иначе - в RGB.
+
+    Возвращает новое изображение в совместимом формате, если формат
+    исходного изображения несовместим, иначе возвращает значение fromimg."""
+
+    destmode = 'L' if grayscale else 'RGB'
+
+    if fromimg.mode == destmode:
+        return fromimg
+
+    ret = Image.new('RGB', fromimg.size)
+    ret.paste(fromimg)
+
+    return ret
 
 
 def grad_values_to_array(srcl, fixrange=False):
@@ -492,21 +516,35 @@ class ImageGradGen(BufferedGradGen):
        каналов и эти экземпляры добавить в экземпляр ParallelGenGradGen;
        в этом случае можно использовать каналы из разных изображений."""
 
-    DEFAULT_CHANNELS = (0, 1, 2) # все 3 канала RGB
-
     def __init__(self, **kwargs):
-        """Параметры: см. описание полей экземпляра класса."""
+        """Параметры: см. описание полей экземпляра класса.
+        """
 
         self.image = kwargs.get('image', None)
         if not self.image:
-            raise ValueError('%s.__init__(): "image" parameter not specified' % self.__class__.__name__)
+            raise ValueError('"image" parameter not specified')
+
+        if self.image.mode not in ('L', 'RGB', 'RGBA'):
+            raise ValueError('unsupported image format')
+
+        srcchnls = kwargs.get('channels', None)
+        if srcchnls is None:
+            if self.image.mode == 'L':
+                self.channels = (0,)
+            else:
+                # 'RGB', 'RGBA'
+                # если нужно использовать и альфа-канал - следует указывать каналы в параметре явно
+                self.channels = (0, 1, 2)
+        else:
+            #TODO возможно, следует добавить проверку на правильность значений номеров каналов в параметре channels
+            if len(srcchnls) > len(self.image.mode): #!!!!
+                raise ValueError('too many channel numbers specified')
+
+            self.channels = tuple(srcchnls)
 
         self.horizontal = kwargs.get('horizontal', None)
         if self.horizontal is None:
             self.horizontal = self.image.width > self.image.height
-
-        #TODO возможно, следует добавить проверку на правильность значений номеров каналов
-        self.channels = tuple(set(kwargs.get('channels', self.DEFAULT_CHANNELS)))
 
         self.srcx = kwargs.get('srcx', 0)
         self.srcy = kwargs.get('srcy', 0)
@@ -528,7 +566,7 @@ class ImageGradGen(BufferedGradGen):
             dx = 1
             dy = 0
         else:
-            self.length = self.image.height
+            self.position.length = self.image.height
 
             if (self.srcy + self.position.length) > self.image.height:
                 raise IndexError(__E_OUT_OF_IMAGE)
@@ -872,11 +910,19 @@ def __debug_LineGradGen():
         print(g)
 
 
+def __debug_ImageGradGen():
+    img = get_supported_image(Image.open('bw.gif'))
+    gen = ImageGradGen(image=img)
+    print(gen)
+    print(gen.buffer)
+
+
 if __name__ == '__main__':
     print('[debugging %s]' % __file__)
 
+    __debug_ImageGradGen()
     #__debug_GradPosition()
     #__debug_GradGen()
-    __debug_LineGradGen()
+    #__debug_LineGradGen()
     #__debug_random()
 
