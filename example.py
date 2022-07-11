@@ -24,7 +24,7 @@
 from dmxgrad import *
 
 
-if __name__ == '__main__':
+def setup_sparkle_demo():
     sparklegen = SequenceGenGradGen(mode=GradPosition.RANDOM)
 
     for iname in range(1, 4):
@@ -36,15 +36,31 @@ if __name__ == '__main__':
                       sparklegen,
                       ImageGradGen(image=Image.open('example_completion.png')))
 
+    return seqgen
+
+
+def setup_sine_demo():
+    ggen = ParallelGenGradGen(mode=GradPosition.REPEAT)
+
+    ggen.add_subgen(SineGradGen(length=10, mode=GradPosition.REPEAT),
+                    SineGradGen(length=20, mode=GradPosition.REPEAT),
+                    SineGradGen(length=30, mode=GradPosition.REPEAT))
+
+    return ggen
+
+
+if __name__ == '__main__':
+
     class MySender(GradSender):
         def display(self, values):
-            print('\r%4s: %s  %s\033[K' % (
+            print('\r%4s: %s\033[K' % (
                         '∞' if self.iterations is None else self.iterations,
-                        ' '.join(map(lambda v: '%.2x' % v, values)),
-                        self.generator.activeGen.name),
+                        ' '.join(map(lambda v: '%.2x' % v, values))),
                   end='')
 
-    sender = MySender(generator=seqgen, interval=50)
+    #dgen = setup_sparkle_demo()
+    dgen = setup_sine_demo()
+    sender = MySender(generator=dgen, interval=50)
 
     print(sender)
     sender.run()
