@@ -11,7 +11,7 @@
        для управления взаправдашним сценическим оборудованием на взаправдашней
        сцене.
     2. Потроха поделия могут быть в любой момент изменены до полной
-       неузнаваемости и несовместимости с предыдущей версии.
+       неузнаваемости и несовместимости с предыдущей версией.
 
     Copyright 2022 MC-6312
 
@@ -29,7 +29,7 @@
     along with this program.  If not, see <http://www.gnu.org/licenses/>."""
 
 
-REVISION = 4
+REVISION = 5
 
 
 from math import sin, pi
@@ -39,7 +39,7 @@ from random import randint
 # требуется PIL или PILLOW!
 from PIL import Image
 
-import array
+from array import array
 from ola.ClientWrapper import ClientWrapper
 
 from colorsys import hls_to_rgb
@@ -47,6 +47,17 @@ from colorsys import hls_to_rgb
 
 # максимальное значение выдаваемых генераторами данных
 MAX_VALUE = 255
+
+# значения цветов для функции rgb_from_hls()
+__HUE_360 = 1.0 / 360
+
+HUE_RED     = 0.0
+HUE_ORANGE  = 30 * __HUE_360
+HUE_YELLOW  = 60 * __HUE_360
+HUE_GREEN   = 120 * __HUE_360
+HUE_CYAN    = 180 * __HUE_360
+HUE_BLUE    = 240 * __HUE_360
+HUE_MAGENTA = 300 * __HUE_360
 
 
 def rgb_from_hls(h, l, s):
@@ -57,6 +68,15 @@ def rgb_from_hls(h, l, s):
     #TODO здесь и в прочих функциях и методах: возможно, следует добавить более строгую проверку входных параметров
 
     return tuple(map(lambda v: int(v * MAX_VALUE), hls_to_rgb(h, l, s)))
+
+# готовые значения цветов (R, G, B)
+RGB_RED     = (MAX_VALUE, 0, 0)
+RGB_ORANGE  = rgb_from_hls(HUE_ORANGE, 0.5, 1)
+RGB_YELLOW  = rgb_from_hls(HUE_YELLOW, 0.5, 1)
+RGB_GREEN   = rgb_from_hls(HUE_GREEN, 0.5, 1)
+RGB_CYAN    = rgb_from_hls(HUE_CYAN, 0.5, 1)
+RGB_BLUE    = rgb_from_hls(HUE_BLUE, 0.5, 1)
+RGB_MAGENTA = rgb_from_hls(HUE_MAGENTA, 0.5, 1)
 
 
 def rgb_from_str(s):
@@ -86,26 +106,38 @@ def rgb_from_str(s):
     return tuple(ret)
 
 
-def unwrap_values(l):
+def grad_values_to_array(srcl, fixrange=False):
     """Рекурсивное разворачивание списка списков (и/или кортежей)
-    целых чисел в один список.
+    целых чисел в один список и преобразование его в массив байтов.
 
     Предназначено для преобразования значений, возвращаемых методом
     *GradGen.next_position() в вид, пригодный для передачи устройству
-    DMX-512."""
+    DMX-512.
 
-    if isinstance(l, int):
-        return [l]
+    Параметры:
+        srcl        - список или кортеж целых чисел;
+        fixrange    - булевское значение:
+                      True  - исходные данные принудительно загоняются
+                              в диапазон 0..MAX_VALUE,
+                      False - значения не проверяются, при выходе из
+                              диапазона генерируется исключение."""
+
+    if isinstance(srcl, int):
+        return [srcl]
 
     ret = []
 
-    for v in l:
+    for v in srcl:
         if isinstance(v, list) or isinstance(v, tuple):
-            ret += unwrap_values(v)
+            ret += grad_values_to_array(v)
         else:
             ret.append(v)
 
-    return ret
+    if fixrange:
+        ret = map(lambda i: 0 if i < 0 else i if i <= MAX_VALUE else MAX_VALUE,
+                  ret)
+
+    return array('B', ret)
 
 
 def repr_to_str(obj, sli=False):
@@ -455,6 +487,8 @@ class ImageGradGen(BufferedGradGen):
        каналов и эти экземпляры добавить в экземпляр ParallelGenGradGen;
        в этом случае можно использовать каналы из разных изображений."""
 
+    DEFAULT_CHANNELS = (0, 1, 2) # все 3 канала RGB
+
     def __init__(self, **kwargs):
         """Параметры: см. описание полей экземпляра класса."""
 
@@ -467,7 +501,7 @@ class ImageGradGen(BufferedGradGen):
             self.horizontal = self.image.width > self.image.height
 
         #TODO возможно, следует добавить проверку на правильность значений номеров каналов
-        self.channels = tuple(set(kwargs.get('channels', (0,))))
+        self.channels = tuple(set(kwargs.get('channels', self.DEFAULT_CHANNELS)))
 
         self.srcx = kwargs.get('srcx', 0)
         self.srcy = kwargs.get('srcy', 0)
@@ -662,6 +696,7 @@ class SequenceGenGradGen(GenGradGen):
 
 class GradSender():
     DEFAULT_TICK_INTERVAL = 100  # в миллисекундах
+    DEFAULT_UNIVERSE = 1
 
     """Обёртка над обёрткой для кормления DMX512-совместимых устройств
     байтами, выданными генераторами градиентов.
@@ -676,16 +711,21 @@ class GradSender():
                       установкой поля stop в True или вместе со скриптом);
         interval    - целое, интервал в миллисекундах между отправками
                       значений устройствам;
+        fixrange    - булевское значение; если True - значения, выдаваемые
+                      генераторами, принудительно загоняются в допустимый
+                      диапазон (см. описание функции grad_values_to_array);
         stop        - булевское значение, флаг прекращения работы цикла
                       в методе run()."""
 
-    def __init__(self, uv, gen, itrs, ms=DEFAULT_TICK_INTERVAL):
+    def __init__(self, **kwargs):
         self.wrapper = ClientWrapper()
 
-        self.generator = gen
-        self.universe = uv
-        self.iterations = itrs
-        self.interval = ms
+        self.generator = kwargs.get('generator')
+        self.universe = kwargs.get('universe', self.DEFAULT_UNIVERSE)
+        self.iterations = kwargs.get('iterations', None)
+        self.interval = kwargs.get('interval', self.DEFAULT_TICK_INTERVAL)
+        self.fixrange = kwargs.get('fixrange', False)
+
         self.lastState = None
 
         self.stop = False
@@ -712,9 +752,10 @@ class GradSender():
 
         self.wrapper.AddEvent(self.interval, self.__DMX_send_frame)
 
-        values = unwrap_values(self.generator.next_position())
-        self.display(values)
-        data = array.array('B', values)
+        # вот какого хера в питоне нет просто нормальных массивов?
+        data = grad_values_to_array(self.generator.get_next_value(),
+                    self.fixrange)
+        self.display(data)
 
         self.wrapper.Client().SendDmx(self.universe, data, self.__DMX_sent)
 
@@ -766,7 +807,7 @@ def __debug_GradGen():
 
     i = 1
     while not allgen.stop:
-        v = ', '.join(map(lambda n: '%.2x' % n, unwrap_values(allgen.get_next_value())))
+        v = ', '.join(map(lambda n: '%.2x' % n, grad_values_to_array(allgen.get_next_value())))
 
         #print('\r%8d  %s\033[K' % (i, v), end='')
         print('%8d  %s' % (i, v))
@@ -794,20 +835,22 @@ def __debug_random():
         ConstantGradGen(value=111),
         SquareGradGen(length=6, lowv=0, highv=MAX_VALUE),
         BufferedGradGen(clearBuf=False, mode=GradPosition.REPEAT,
-            data=((0, 0, 0),(128, 128, 128), (255, 255, 255))))
+            data=((0, 0, 0), (128, 128, 128), (255, 255, 255))))
     allgen.reset()
 
     n = allgen.get_n_values()
     while n > 0:
         n -= 1
 
-        print(unwrap_values(allgen.get_next_value()))
+        print(grad_values_to_array(allgen.get_next_value()))
 
 
 def __debug_LineGradGen():
-    lgg = LineGradGen(length=10, channelsFrom=rgb_from_hls(0, 0, 0), channelsTo=rgb_from_hls(0, 0.5, 1))
-    #lgg = LineGradGen(length=10, channelsFrom=(0, 0), channelsTo=(128, 255))
-    print(lgg)
+    lgg = LineGradGen(length=10,
+            channelsFrom=RGB_RED,
+            channelsTo=RGB_GREEN)
+
+    print(lgg.channelsFrom, lgg.channelsTo)
     for g in lgg.buffer:
         print(g)
 
