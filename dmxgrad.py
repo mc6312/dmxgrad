@@ -296,7 +296,10 @@ class GradGen():
                       параметр; по умолчанию - GradPosition.STOP.
 
     Поля экземпляров класса (могут быть дополнены классом-потомком):
-        position    - экземпляр GradPosition."""
+        position    - экземпляр GradPosition;
+        name        - отображаемое имя (для отладки и т.п.);
+                      если не указано при вызове конструктора -
+                      генерируется автоматически."""
 
     DEFAULT_MODE = GradPosition.STOP
 
@@ -312,6 +315,8 @@ class GradGen():
 
         self.position = GradPosition(kwargs.get('length', 1),
             kwargs.get('mode', self.DEFAULT_MODE))
+
+        self.name = kwargs.get('name', '%s%x' % (self.__class__.__name__, id(self)))
 
         self.reset()
 
@@ -604,12 +609,18 @@ class GenGradGen(GradGen):
     """Генератор, возвращающий значения от вложенных генераторов.
 
     Внимание! Поля экземпляра класса GenGradGen (position и т.п.)
-    могут не использоваться классами-потомками.
-    После последнего вызова add_subgen() следует вызвать метод reset()."""
+    могут не использоваться классами-потомками."""
 
     def __init__(self, **kwargs):
         self.generators = []
         super().__init__(**kwargs)
+
+    def subgen_added(self):
+        """При необходимости каких либо действий после добавления
+        вложенных генераторов этот метод должен быть перекрыт классом-
+        потомком."""
+
+        pass
 
     def add_subgen(self, *gen):
         """Добавление одного или нескольких вложенных генераторов.
@@ -619,6 +630,8 @@ class GenGradGen(GradGen):
         self.generators += gen
 
         self.position.set_length(self.generators)
+
+        self.subgen_added()
 
     def reset(self):
         self.position.set_length(self.generators)
@@ -670,6 +683,10 @@ class SequenceGenGradGen(GenGradGen):
     def reset(self):
         super().reset()
         self.__set_active_gen()
+
+    def subgen_added(self):
+        if not self.activeGen:
+            self.__set_active_gen()
 
     def get_n_values(self):
         r = 0

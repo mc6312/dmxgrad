@@ -35,12 +35,14 @@ if __name__ == '__main__':
     seqgen.add_subgen(ImageGradGen(image=Image.open('example_start.png')),
                       sparklegen,
                       ImageGradGen(image=Image.open('example_completion.png')))
-    seqgen.reset()
 
     class MySender(GradSender):
         def display(self, values):
-            print('\r%4s: %s\033[K' % ('∞' if self.iterations is None else self.iterations,
-                                       ' '.join(map(lambda v: '%.2x' % v, values))), end='')
+            print('\r%4s: %s  %s\033[K' % (
+                        '∞' if self.iterations is None else self.iterations,
+                        ' '.join(map(lambda v: '%.2x' % v, values)),
+                        self.generator.activeGen.name),
+                  end='')
 
     sender = MySender(generator=seqgen, interval=50)
 
