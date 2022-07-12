@@ -664,8 +664,6 @@ class ConstantGradGen(GradGen):
 class SquareGradGen(BufferedGradGen):
     """Генератор меандра.
 
-    Генерирует меандр с длиной периода в length/2 значений.
-
     Поля класса:
         LOW_VALUE   - целое, 0..255, значение "нуля" меандра по умолчанию;
         HIGH_VALUE  - целое, 0..255, значение "единицы" меандра по умолчанию.
@@ -705,7 +703,7 @@ class SquareGradGen(BufferedGradGen):
 
         for i in range(self.position.length):
             x = (i + _phase) % self.position.length
-            self.buffer.append(self.lowv if x < highBegin or x >= highEnd else self.highv)
+            self.buffer.append(self.lowv if x < highBegin or x > highEnd else self.highv)
 
 
 class GenGradGen(GradGen):
@@ -991,7 +989,7 @@ def __debug_SineGradGen():
 
 
 def __debug_SquareGradGen():
-    sgg = SquareGradGen(length=24, dutyCycle=0.2, phase=1.0)
+    sgg = SquareGradGen(length=24, dutyCycle=0.5, phase=1.0)
     print(sgg)
 
     for i, c in enumerate(sgg.buffer):
