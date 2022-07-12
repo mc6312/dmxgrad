@@ -29,7 +29,7 @@
     along with this program.  If not, see <http://www.gnu.org/licenses/>."""
 
 
-REVISION = 6
+REVISION = 7
 
 
 from math import sin, pi
@@ -418,17 +418,73 @@ class BufferedGradGen(GradGen):
 class SineGradGen(BufferedGradGen):
     """Генератор синусоиды.
 
-    Генерирует синусоиду с длиной периода в length значений."""
+    Генерирует синусоиду с длиной периода в length значений.
+
+    Поля (в дополнение к наследственным):
+        levels  - кортеж из одного и более float в диапазоне от 0 до 1.0 -
+                  значения уровней каналов; по умолчанию - (1.0, );
+        phase   - кортеж из одного и более float в диапазоне от 0 до 1.0 -
+                  значения фазы синусоиды для генерируемых значений каналов,
+                  количество значений соответствует количеству значений
+                  в поле levels; по умолчанию - (0.0, )."""
+
+    def __init__(self, **kwargs):
+        """Параметры (в дополнение к наследуемым):
+            levels  - уровни для одного или более каналов (см. описание
+                      поля класса); одно значение float или кортеж/список
+                      из float;
+            phase   - значение фазы синусоиды (см. описание поля класса);
+                      если вместо кортежа той же длины, что параметр
+                      levels указать одно значение float - это значение
+                      будет использовано для всех каналов."""
+
+        def __param_tuple(pname, defval):
+            #TODO возможно, стоит прикрутить проверку диапазонов значений
+            pval = kwargs.get(pname, defval)
+
+            if isinstance(pval, (list, tuple)):
+                if len(pval) < 1:
+                    raise ValueError('"%s" parameter must contain at least one float value' % pname)
+
+                return tuple(pval)
+            elif isinstance(pval, float):
+                return (pval, )
+            else:
+                raise ValueError('"%s" parameter must be float' % pname)
+
+        self.levels = __param_tuple('levels', (1.0, ))
+        self.phase = __param_tuple('phase', (0.0, ))
+
+        _lp = len(self.phase)
+        _ll = len(self.levels)
+
+        if _lp != _ll:
+            if _ll > 1:
+                if _lp != 1:
+                    raise ValueError('parameter "phase" length does not match parameter "levels" length')
+
+                self.phase = tuple([self.phase[0]] * _ll)
+
+        print(self.levels, self.phase)
+
+        super().__init__(**kwargs)
 
     def reset(self):
         super().reset()
 
         sinCf = 2 * pi / self.position.length
         sinOffset = pi / 2
-        middle = MAX_VALUE / 2.0
 
         for i in range(self.position.length):
-            self.buffer.append(int(middle - middle * sin(sinOffset + i * sinCf)))
+            v = []
+
+            for ci, level in enumerate(self.levels):
+                pv = i + self.position.length * self.phase[ci]
+                middle = level * MAX_VALUE / 2.0
+
+                v.append(int(middle - middle * (sin(sinOffset + pv * sinCf))))
+
+            self.buffer.append(v)
 
 
 class LineGradGen(BufferedGradGen):
@@ -615,8 +671,12 @@ class SquareGradGen(BufferedGradGen):
         HIGH_VALUE  - целое, 0..255, значение "единицы" меандра по умолчанию.
 
     Поля экземпляра класса (в дополнение к унаследованным):
-        lowv    - целое, 0..255, значение "нуля" меандра;
-        highv   - целое, 0..255, значение "единицы" меандра."""
+        phase       - фаза, float, 0.0-1.0;
+                      по умолчанию - 0.0;
+        dutyCycle   - коэффициент заполнения, float, 0.0-1.0
+                      по умолчанию - 1.0;
+        lowv        - целое, 0..255, значение "нуля" меандра;
+        highv       - целое, 0..255, значение "единицы" меандра."""
 
     DEFAULT_MODE = GradPosition.REPEAT
 
@@ -630,17 +690,22 @@ class SquareGradGen(BufferedGradGen):
 
         self.lowv = kwargs.get('lowv', self.LOW_VALUE)
         self.highv = kwargs.get('highv', self.HIGH_VALUE)
+        self.phase = kwargs.get('phase', 0.0)
+        self.dutyCycle = kwargs.get('dutyCycle', 0.5)
 
         super().__init__(**kwargs)
 
     def reset(self):
         super().reset()
 
-        half = self.position.length // 2
-        # а кто указал нечётное значение length конструктору - сам себе оно самое
+        edge = self.position.length * self.dutyCycle
+        highBegin = int(1.0 - edge)
+        highEnd = int(edge)
+        _phase = self.position.length - int(self.position.length * self.phase)
 
-        self.buffer += [self.lowv] * half
-        self.buffer += [self.highv] * half
+        for i in range(self.position.length):
+            x = (i + _phase) % self.position.length
+            self.buffer.append(self.lowv if x < highBegin or x >= highEnd else self.highv)
 
 
 class GenGradGen(GradGen):
@@ -917,10 +982,28 @@ def __debug_ImageGradGen():
     print(gen.buffer)
 
 
+def __debug_SineGradGen():
+    sgg = SineGradGen(length=24, levels=(0.5, 1.0), phase=0.0)
+    print(sgg)
+
+    for c in sgg.buffer:
+        print(c)
+
+
+def __debug_SquareGradGen():
+    sgg = SquareGradGen(length=24, dutyCycle=0.2, phase=1.0)
+    print(sgg)
+
+    for i, c in enumerate(sgg.buffer):
+        print('%.2d  %.3d' % (i, c))
+
+
 if __name__ == '__main__':
     print('[debugging %s]' % __file__)
 
-    __debug_ImageGradGen()
+    #__debug_ImageGradGen()
+    #__debug_SineGradGen()
+    __debug_SquareGradGen()
     #__debug_GradPosition()
     #__debug_GradGen()
     #__debug_LineGradGen()

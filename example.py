@@ -39,12 +39,20 @@ def setup_sparkle_demo():
     return seqgen
 
 
-def setup_sine_demo():
+def setup_sine_demo_p():
+    # старый способ
     ggen = ParallelGenGradGen(mode=GradPosition.REPEAT)
 
     ggen.add_subgen(SineGradGen(length=10, mode=GradPosition.REPEAT),
                     SineGradGen(length=20, mode=GradPosition.REPEAT),
                     SineGradGen(length=30, mode=GradPosition.REPEAT))
+
+    return ggen
+
+
+def setup_sine_demo_s():
+    # новый способ
+    ggen = SineGradGen(length=60, levels=(1.0, 0.6, 0.0), mode=GradPosition.REPEAT)
 
     return ggen
 
@@ -59,7 +67,7 @@ if __name__ == '__main__':
                   end='')
 
     #dgen = setup_sparkle_demo()
-    dgen = setup_sine_demo()
+    dgen = setup_sine_demo_s()
     sender = MySender(generator=dgen, interval=50)
 
     print(sender)

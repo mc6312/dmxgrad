@@ -61,9 +61,6 @@ commit:
 show-branch:
 	@echo "$(branch)-$(version)"
 
-show-version:
-	@echo "$(version)"
-
 docview:
 	$(eval docname = README.htm)
 	@echo "<html><head><meta charset="utf-8"><title>$(title_version) README</title></head><body>" >$(docname)
