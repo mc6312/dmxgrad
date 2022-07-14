@@ -29,7 +29,7 @@
     along with this program.  If not, see <http://www.gnu.org/licenses/>."""
 
 
-REVISION = 8
+REVISION = 9
 
 
 from math import sin, pi
@@ -213,6 +213,8 @@ class GradPosition():
     Поля:
         value       - положительное целое, текущее положение;
         length      - положительное целое, >= 1 - количество значений;
+        ncycles     - количество полных циклов счётчика - увеличивается
+                      на 1 по достижении крайних значений;
         direction   - целое, -1 или 1, приращение положения;
         mode        - целое, управляет поведением при достижении
                       крайних значений (см. ниже).
@@ -232,6 +234,8 @@ class GradPosition():
         Параметры:
             length - положительное целое >0, количество значений;
             mode, direction - см. описание соотв. полей класса."""
+
+        self.ncycles = 0
 
         self.set_length(length)
 
@@ -290,12 +294,14 @@ class GradPosition():
 
         self.value = 0
         self.direction = 1
+        self.ncycles += 1
 
     def end(self, back=False):
         """Установка полей в конечные значения"""
 
         self.value = self.length - 1
         self.direction = 1 if not back else -1
+        self.ncycles += 1
 
     def next_value(self):
         """Изменение значения поля value в соответствии со значениями
@@ -310,17 +316,23 @@ class GradPosition():
         if self.mode == self.STOP:
             if self.value < _lv:
                 self.value += self.direction
+                self.ncycles += 1
         elif self.mode == self.REPEAT:
-            self.value = (self.value + self.direction) % self.length
+            self.value = self.value + self.direction
+            if self.value < 0 or self.value == self.length:
+                self.ncycles += 1
+                self.value %= self.length
         elif self.mode == self.MIRROR:
             self.value += self.direction
 
             if self.value > _lv:
                 self.value = _lv - 1
                 self.direction = - self.direction
+                self.ncycles += 1
             elif self.value < 0:
                 self.value = 1
                 self.direction = - self.direction
+                self.ncycles += 1
         else: #RANDOM
             self.value = randint(0, _lv)
 
@@ -776,6 +788,50 @@ class ParallelGenGradGen(GenGradGen):
 
     def get_next_value(self):
         return [g.get_next_value() for g in self.generators]
+
+
+class RepeaterGenGradGen(GradGen):
+    """Генератор, повторяющий вызов дочернего генератора указанное
+    количество раз.
+    Не является потомком GenGradGen, несмотря на название класса.
+    Наследственное поле "position" используется только как хранилище
+    количества повторов, position.mode игнорируется."""
+
+    def __chk_subgen(self, gen):
+        if not isinstance(gen, GradGen):
+            raise ValueError('invalid "gen" parameter type (must be subclass of GradGen)')
+
+        return gen
+
+    def __init__(self, **kwargs):
+        self.itersleft = 0
+        self.subgen = self.__chk_subgen(kwargs.get('subgen', None))
+        self.__accum = None
+
+        super().__init__(**kwargs)
+
+    def set_subgen(self, gen):
+
+        self.subgen = self.__chk_subgen(gen)
+        self.__setup_iters_left()
+
+    def get_n_values(self):
+        return self.subgen.get_n_values() * self.position.length
+
+    def __setup_iters_left(self):
+        self.itersleft = self.get_n_values()
+
+    def reset(self):
+        super().reset()
+        self.subgen.reset()
+        self.__setup_iters_left()
+
+    def get_next_value(self):
+        if self.itersleft > 0:
+            self.__accum = self.subgen.get_next_value()
+            self.itersleft -= 1
+
+        return self.__accum
 
 
 class SequenceGenGradGen(GenGradGen):
