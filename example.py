@@ -52,7 +52,10 @@ def setup_sine_demo_p():
 
 def setup_sine_demo_s():
     # новый способ
-    ggen = SineGradGen(length=60, levels=(1.0, 0.6, 0.0), mode=GradPosition.REPEAT)
+    ggen = SineGradGen(length=GradPosition.compute_length(1, GradSender.DEFAULT_TICK_INTERVAL),
+                levels=(1.0, 1.0, 1.0),
+                phase=(0.0, 0.33, 0.66),
+                mode=GradPosition.REPEAT)
 
     return ggen
 
@@ -68,7 +71,7 @@ if __name__ == '__main__':
 
     #dgen = setup_sparkle_demo()
     dgen = setup_sine_demo_s()
-    sender = MySender(generator=dgen, interval=50)
+    sender = MySender(generator=dgen)
 
     print(sender)
     sender.run()

@@ -29,7 +29,7 @@
     along with this program.  If not, see <http://www.gnu.org/licenses/>."""
 
 
-REVISION = 7
+REVISION = 8
 
 
 from math import sin, pi
@@ -265,6 +265,26 @@ class GradPosition():
         self.length = l
         self.begin()
 
+    @staticmethod
+    def compute_length(seconds, sendint):
+        """Расчёт количества шагов градиента на основе
+        длительности в секундах и интервала между обращениями
+        к устройству DMX512.
+
+        Параметры:
+            seconds - int или float, длительность в секундах;
+            sendint - int или float, количество обращений к устройству в секунду.
+
+        Возвращает целое число."""
+
+        return int(1000 * seconds / sendint)
+
+    def set_length_from_time(self, seconds, sendint):
+        """Установка поля length на основе длительности.
+        См. также метод compute_length()."""
+
+        self.set_length(self.compute_length(seconds, sendint))
+
     def begin(self):
         """Установка полей в начальные значения"""
 
@@ -464,8 +484,6 @@ class SineGradGen(BufferedGradGen):
                     raise ValueError('parameter "phase" length does not match parameter "levels" length')
 
                 self.phase = tuple([self.phase[0]] * _ll)
-
-        print(self.levels, self.phase)
 
         super().__init__(**kwargs)
 
@@ -813,7 +831,7 @@ class SequenceGenGradGen(GenGradGen):
 
 
 class GradSender():
-    DEFAULT_TICK_INTERVAL = 100  # в миллисекундах
+    DEFAULT_TICK_INTERVAL = 1000/30  # 30 fps в миллисекундах
     DEFAULT_UNIVERSE = 1
 
     """Обёртка над обёрткой для кормления DMX512-совместимых устройств
