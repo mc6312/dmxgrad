@@ -29,7 +29,7 @@
     along with this program.  If not, see <http://www.gnu.org/licenses/>."""
 
 
-REVISION = 9
+REVISION = 10
 
 
 from math import sin, pi
@@ -130,7 +130,7 @@ def get_supported_image(fromimg, grayscale=False):
     return ret
 
 
-def grad_values_to_array(srcl, fixrange=False):
+def grad_values_to_array(srclist, fixrange=False):
     """Рекурсивное разворачивание списка списков (и/или кортежей)
     целых чисел в один список и преобразование его в массив байтов.
 
@@ -139,23 +139,28 @@ def grad_values_to_array(srcl, fixrange=False):
     DMX-512.
 
     Параметры:
-        srcl        - список или кортеж целых чисел;
+        srclist     - список или кортеж целых чисел;
         fixrange    - булевское значение:
                       True  - исходные данные принудительно загоняются
                               в диапазон 0..MAX_VALUE,
                       False - значения не проверяются, при выходе из
                               диапазона генерируется исключение."""
 
-    if isinstance(srcl, int):
-        return [srcl]
+    def __unwrap_lol(sl):
+        if isinstance(sl, int):
+            return [sl]
 
-    ret = []
+        dl = []
 
-    for v in srcl:
-        if isinstance(v, list) or isinstance(v, tuple):
-            ret += grad_values_to_array(v)
-        else:
-            ret.append(v)
+        for v in sl:
+            if isinstance(v, list) or isinstance(v, tuple):
+                dl += __unwrap_lol(v)
+            else:
+                dl.append(v)
+
+        return dl
+
+    ret = __unwrap_lol(srclist)
 
     if fixrange:
         ret = map(lambda i: 0 if i < 0 else i if i <= MAX_VALUE else MAX_VALUE,
