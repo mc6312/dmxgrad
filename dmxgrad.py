@@ -29,7 +29,7 @@
     along with this program.  If not, see <http://www.gnu.org/licenses/>."""
 
 
-REVISION = 10
+REVISION = 11
 
 
 from math import sin, pi
@@ -130,43 +130,24 @@ def get_supported_image(fromimg, grayscale=False):
     return ret
 
 
-def grad_values_to_array(srclist, fixrange=False):
+def unwrap_lol(sl):
     """Рекурсивное разворачивание списка списков (и/или кортежей)
-    целых чисел в один список и преобразование его в массив байтов.
+    чисел в один список. Возвращает линейный список.
+    Может использоваться генераторами, получающими значения от других
+    генераторов (например, от ParallelGenGradGen)."""
 
-    Предназначено для преобразования значений, возвращаемых методом
-    *GradGen.next_position() в вид, пригодный для передачи устройству
-    DMX-512.
+    if isinstance(sl, int):
+        return [sl]
 
-    Параметры:
-        srclist     - список или кортеж целых чисел;
-        fixrange    - булевское значение:
-                      True  - исходные данные принудительно загоняются
-                              в диапазон 0..MAX_VALUE,
-                      False - значения не проверяются, при выходе из
-                              диапазона генерируется исключение."""
+    dl = []
 
-    def __unwrap_lol(sl):
-        if isinstance(sl, int):
-            return [sl]
+    for v in sl:
+        if isinstance(v, list) or isinstance(v, tuple):
+            dl += unwrap_lol(v)
+        else:
+            dl.append(v)
 
-        dl = []
-
-        for v in sl:
-            if isinstance(v, list) or isinstance(v, tuple):
-                dl += __unwrap_lol(v)
-            else:
-                dl.append(v)
-
-        return dl
-
-    ret = __unwrap_lol(srclist)
-
-    if fixrange:
-        ret = map(lambda i: 0 if i < 0 else i if i <= MAX_VALUE else MAX_VALUE,
-                  ret)
-
-    return array('B', ret)
+    return dl
 
 
 def repr_to_str(obj, sli=False):
@@ -816,7 +797,6 @@ class RepeaterGenGradGen(GradGen):
         super().__init__(**kwargs)
 
     def set_subgen(self, gen):
-
         self.subgen = self.__chk_subgen(gen)
         self.__setup_iters_left()
 
@@ -950,11 +930,26 @@ class GradSender():
         self.wrapper.AddEvent(self.interval, self.__DMX_send_frame)
 
         # вот какого хера в питоне нет просто нормальных массивов?
-        data = grad_values_to_array(self.generator.get_next_value(),
-                    self.fixrange)
+        data = array('B', map(lambda i: 0 if i < 0 else i if i <= MAX_VALUE else MAX_VALUE,
+                              unwrap_lol(self.generator.get_next_value())))
+
         self.display(data)
 
         self.wrapper.Client().SendDmx(self.universe, data, self.__DMX_sent)
+
+    def blackout(self, nchannels=512):
+        """Отправка во все каналы нулей для гашения всех чортовых лампочек.
+        Mожет использоваться в обработчиках ошибок, дабы в случае чего
+        лампочки ток не жрали зря."""
+
+        if nchannels < 1:
+            nchannels = 1
+        elif nchannels > 512:
+            nchannels = 512
+
+        self.wrapper.Client().SendDmx(self.universe,
+            array('B', [0] * nchannels),
+            self.__DMX_sent)
 
     def display(self, values):
         """При необходимости отображения текущих значений и прочей
@@ -969,120 +964,6 @@ class GradSender():
         self.wrapper.Run()
 
 
-def __debug_GradGen():
-    import signal
-
-    img = Image.open('gradient2.png')
-
-    # 1
-    """rgb = ParallelGenGradGen(mode=GradPosition.REPEAT)
-    for c in range(3):
-        rgb.add_subgen(ImageGradGen(image=img, channels=c, mode=GradPosition.REPEAT))"""
-    # 2
-    rgb = ImageGradGen(image=img, channels=(0,1,2), mode=GradPosition.REPEAT)
-
-    #allgen = ParallelGenGradGen()
-    allgen = SequenceGenGradGen(mode=GradPosition.REPEAT)
-
-    allgen.add_subgen(rgb)
-    allgen.add_subgen(LineGradGen(length=35, mode=GradPosition.MIRROR))
-    allgen.add_subgen(SineGradGen(length=16, mode=GradPosition.REPEAT))
-    allgen.add_subgen(ConstantGradGen(value=1))
-    allgen.add_subgen(SquareGradGen(length=16, lowv=0, highv=GradGen.MAX_VALUE))
-    allgen.add_subgen(BufferedGradGen(clearBuf=False, mode=GradPosition.REPEAT, data=(0, 128, 255)))
-    allgen.reset()
-
-    print('Press Ctrl+C to stop')
-
-    allgen.stop = False
-
-    def __sigint_handler(sig, frame):
-        allgen.stop = True
-
-    oldCC = signal.getsignal(signal.SIGINT)
-    signal.signal(signal.SIGINT, __sigint_handler)
-
-    i = 1
-    while not allgen.stop:
-        v = ', '.join(map(lambda n: '%.2x' % n, grad_values_to_array(allgen.get_next_value())))
-
-        #print('\r%8d  %s\033[K' % (i, v), end='')
-        print('%8d  %s' % (i, v))
-        i += 1
-
-    signal.signal(signal.SIGINT, oldCC)
-    print('\n***END***')
-
-
-def __debug_GradPosition():
-    for mode in (GradPosition.STOP, GradPosition.REPEAT, GradPosition.MIRROR):
-        pos = GradPosition(6, mode)
-
-        print(f'{mode=}')
-
-        for i in range(pos.length * 2):
-            print('%2d  %d' % (i, pos.value))
-            pos.next_value()
-
-def __debug_random():
-    allgen = SequenceGenGradGen(mode=GradPosition.RANDOM)
-
-    allgen.add_subgen(LineGradGen(length=5, mode=GradPosition.MIRROR),
-        SineGradGen(length=6, mode=GradPosition.REPEAT),
-        ConstantGradGen(value=111),
-        SquareGradGen(length=6, lowv=0, highv=MAX_VALUE),
-        BufferedGradGen(clearBuf=False, mode=GradPosition.REPEAT,
-            data=((0, 0, 0), (128, 128, 128), (255, 255, 255))))
-    allgen.reset()
-
-    n = allgen.get_n_values()
-    while n > 0:
-        n -= 1
-
-        print(grad_values_to_array(allgen.get_next_value()))
-
-
-def __debug_LineGradGen():
-    lgg = LineGradGen(length=10,
-            channelsFrom=RGB_RED,
-            channelsTo=RGB_GREEN)
-
-    print(lgg.channelsFrom, lgg.channelsTo)
-    for g in lgg.buffer:
-        print(g)
-
-
-def __debug_ImageGradGen():
-    img = get_supported_image(Image.open('bw.gif'))
-    gen = ImageGradGen(image=img)
-    print(gen)
-    print(gen.buffer)
-
-
-def __debug_SineGradGen():
-    sgg = SineGradGen(length=24, levels=(0.5, 1.0), phase=0.0)
-    print(sgg)
-
-    for c in sgg.buffer:
-        print(c)
-
-
-def __debug_SquareGradGen():
-    sgg = SquareGradGen(length=24, dutyCycle=0.5, phase=1.0)
-    print(sgg)
-
-    for i, c in enumerate(sgg.buffer):
-        print('%.2d  %.3d' % (i, c))
-
-
 if __name__ == '__main__':
     print('[debugging %s]' % __file__)
-
-    #__debug_ImageGradGen()
-    #__debug_SineGradGen()
-    __debug_SquareGradGen()
-    #__debug_GradPosition()
-    #__debug_GradGen()
-    #__debug_LineGradGen()
-    #__debug_random()
 
