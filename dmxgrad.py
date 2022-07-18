@@ -33,7 +33,7 @@ REVISION = 12
 
 
 from math import sin, pi
-from random import randint
+from random import randint, random
 
 # для генераторов, берущих данные из загружаемых изображений
 # требуется PIL или PILLOW!
@@ -447,6 +447,14 @@ class GradGen():
 
         self.reset()
 
+    def get_disp_name(self):
+        """Возвращает строку с отображаемым именем экземпляра класса.
+        В простейшем случае это значение поля name, а генераторы,
+        содержащие другие генераторы, должны добавлять их имена
+        в возвращаемое значение."""
+
+        return self.name
+
     def reset(self):
         """Сброс полей в начальные значения и расчёт значений, которые
         не требуется считать "на лету".
@@ -666,17 +674,17 @@ class ImageGradGen(BufferedGradGen):
         y = self.srcy
         for i in range(self.position.length):
             pixel = self.image.getpixel((x, y))
-            self.buffer.append(tuple(map(lambda c: pixel[c], self.channels)))
+            self.buffer.append(tuple(map(lambda c: pixel[c] / 255.0, self.channels)))
 
             x += dx
             y += dy
 
 
 class ConstantGradGen(GradGen):
-    """Псевдо-генератор, выдающий лишь одно значение.
+    """Псевдо-генератор, выдающий постоянные значения.
 
     Поля экземпляра класса:
-        value   - целое, 0..255 - возвращаемое значение.
+        values   - кортеж из float в диапазоне 0.0-1.0.
 
     Счетчик положения не используется."""
 
@@ -685,10 +693,42 @@ class ConstantGradGen(GradGen):
 
         super().__init__(**kwargs)
 
-        self.value = kwargs.get('value', 0)
+        self.values = fparam_to_tuple(kwargs, 'value', (0, ))
 
     def get_next_value(self):
-        return self.value
+        return self.values
+
+
+class NoiseGen(GradGen):
+    """Генератор шума.
+
+    Поля экземпляра класса:
+        minValues, maxValues
+            - кортежи из float в диапазоне 0.0-1.0 с граничными значениями
+              для каналов.
+
+    Счетчик положения не используется."""
+
+    def __init__(self, **kwargs):
+        self.minValues = fparam_to_tuple(kwargs, 'minValues', (0.0, ),
+                            None, check_float_range_1)
+        self.maxValues = fparam_to_tuple(kwargs, 'maxValues', (1.0, ),
+                            len(self.minValues), check_float_range_1)
+
+        super().__init__(**kwargs)
+
+    def reset(self):
+        pass
+
+    def get_next_value(self):
+        ranges = [(self.maxValues[i] - minv) for i, minv in enumerate(self.minValues)]
+
+        ret = []
+
+        for ci, minv in enumerate(self.minValues):
+            ret.append(minv + random() * ranges[ci])
+
+        return ret
 
 
 class WaveGradGen(BufferedGradGen):
@@ -807,6 +847,9 @@ class GenGradGen(GradGen):
         self.generators = []
         super().__init__(**kwargs)
 
+    def get_disp_name(self):
+        return '%s(%s)' % (self.name, ', '.join([gen.get_disp_name() for gen in self.generators]))
+
     def subgen_added(self):
         """При необходимости каких либо действий после добавления
         вложенных генераторов этот метод должен быть перекрыт классом-
@@ -871,6 +914,9 @@ class RepeaterGenGradGen(GradGen):
 
         super().__init__(**kwargs)
 
+    def get_disp_name(self):
+        return '%s(%s)' % (self.name, self.subgen.get_disp_name())
+
     def set_subgen(self, gen):
         self.subgen = self.__chk_subgen(gen)
         self.__setup_iters_left()
@@ -914,6 +960,9 @@ class SequenceGenGradGen(GenGradGen):
         else:
             self.activeGen = None
             self.activeItrs = 0
+
+    def get_disp_name(self):
+        return '%s(%s)' % (self.name, self.activeGen.get_disp_name())
 
     def reset(self):
         super().reset()
@@ -1005,12 +1054,23 @@ class GradSender():
         self.wrapper.AddEvent(self.interval, self.__DMX_send_frame)
 
         # вот какого хера в питоне нет просто нормальных массивов?
-        data = array('B', map(lambda i: 0 if i < 0 else i if i <= MAX_VALUE else MAX_VALUE,
-                              unwrap_lol(self.generator.get_next_value())))
+        values = unwrap_lol(self.generator.get_next_value())
+        data = array('B', map(lambda i: int(255 * (0 if i < 0 else i if i <= MAX_VALUE else MAX_VALUE)),
+                              values))
 
-        self.display(data)
+        self.display(values, self.generator)
 
         self.wrapper.Client().SendDmx(self.universe, data, self.__DMX_sent)
+
+    def display(self, values, gen):
+        """При необходимости отображения текущих значений и прочей
+        информации этот метод должен быть перекрыт классом-потомком.
+        Параметры:
+            values  - линейный список float в диапазоне 0.0-1.0;
+            gen     - экземпляр GradGen."""
+
+        #print('sending: %s, iteration(s) left: %d' % (data, self.iterations))
+        pass
 
     def blackout(self, nchannels=512):
         """Отправка во все каналы нулей для гашения всех чортовых лампочек.
@@ -1025,13 +1085,6 @@ class GradSender():
         self.wrapper.Client().SendDmx(self.universe,
             array('B', [0] * nchannels),
             self.__DMX_sent)
-
-    def display(self, values):
-        """При необходимости отображения текущих значений и прочей
-        информации этот метод должен быть перекрыт классом-потомком."""
-
-        #print('sending: %s, iteration(s) left: %d' % (data, self.iterations))
-        pass
 
     def run(self):
         self.stop = False
