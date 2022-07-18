@@ -29,7 +29,7 @@
     along with this program.  If not, see <http://www.gnu.org/licenses/>."""
 
 
-REVISION = 11
+REVISION = 12
 
 
 from math import sin, pi
@@ -45,10 +45,7 @@ from ola.ClientWrapper import ClientWrapper
 from colorsys import hls_to_rgb
 
 
-# максимальное значение выдаваемых генераторами данных
-MAX_VALUE = 255
-
-# значения цветов для функции rgb_from_hls()
+# значения цветов для функции hls_to_rgb()
 __HUE_360 = 1.0 / 360
 
 HUE_RED     = 0.0
@@ -60,30 +57,24 @@ HUE_BLUE    = 240 * __HUE_360
 HUE_MAGENTA = 300 * __HUE_360
 
 
-def rgb_from_hls(h, l, s):
-    """Преобразование значений hue, lightness и saturation
-    (в диапазоне 0..1.0) в кортеж с целыми значениями red, green и blue
-    в диапазоне 0..MAX_VALUE (т.к. устройства DMX512 жрут байты)."""
-
-    #TODO здесь и в прочих функциях и методах: возможно, следует добавить более строгую проверку входных параметров
-
-    return tuple(map(lambda v: int(v * MAX_VALUE), hls_to_rgb(h, l, s)))
+MAX_VALUE = 1.0
 
 # готовые значения цветов (R, G, B)
 RGB_RED     = (MAX_VALUE, 0, 0)
-RGB_ORANGE  = rgb_from_hls(HUE_ORANGE, 0.5, 1)
-RGB_YELLOW  = rgb_from_hls(HUE_YELLOW, 0.5, 1)
-RGB_GREEN   = rgb_from_hls(HUE_GREEN, 0.5, 1)
-RGB_CYAN    = rgb_from_hls(HUE_CYAN, 0.5, 1)
-RGB_BLUE    = rgb_from_hls(HUE_BLUE, 0.5, 1)
-RGB_MAGENTA = rgb_from_hls(HUE_MAGENTA, 0.5, 1)
+__MAX_LIGHTNESS = 0.5 # максимальное значение яркости в HLS, при котором цвет не пересвечивается в белый
+RGB_ORANGE  = hls_to_rgb(HUE_ORANGE, __MAX_LIGHTNESS, 1)
+RGB_YELLOW  = hls_to_rgb(HUE_YELLOW, __MAX_LIGHTNESS, 1)
+RGB_GREEN   = hls_to_rgb(HUE_GREEN, __MAX_LIGHTNESS, 1)
+RGB_CYAN    = hls_to_rgb(HUE_CYAN, __MAX_LIGHTNESS, 1)
+RGB_BLUE    = hls_to_rgb(HUE_BLUE, __MAX_LIGHTNESS, 1)
+RGB_MAGENTA = hls_to_rgb(HUE_MAGENTA, __MAX_LIGHTNESS, 1)
 
 
-def rgb_from_str(s):
+def str_to_rgb(s):
     """Преобразование значения цвета из строки вида "#RRGGBB", "#RGB",
     "RRGGBB" или "RGB" в кортеж из трёх целых в диапазоне 0..MAX_VALUE."""
 
-    __E_RGB = 'rgb_from_str(s): invalid format of "s" parameter'
+    __E_RGB = 'str_to_rgb(s): invalid format of "s" parameter'
 
     sl = len(s)
     if sl not in (3, 4, 6, 7):
@@ -150,9 +141,103 @@ def unwrap_lol(sl):
     return dl
 
 
+def channels_to_str(channels):
+    """Пребразование списка/кортежа, содержащего значения float
+    в диапазоне 0.0-1.0 (и/или кортежи с такими значениями) в строку
+    с горизонтальными диаграммами и численными значениями (в виде
+    шестнадцатиричных чисел в диапазоне 0x00-0xFF).
+    Функция предназначена для визуализации при отладке генераторов."""
+
+    #__BCHARS = '▏▎▍▌▋▊▉'
+    __BCHARS = '░▒▓█'
+    __BCCOUNT = len(__BCHARS)
+
+    def __val_disp(v):
+        blen = int(v * __BCCOUNT)
+        if blen >= __BCCOUNT:
+            # значение 1.0 при преобразовании приведет к выходу за
+            # границу списка, заодно подстрахуемся от кривых значений
+            # > 1.0
+            blen = __BCCOUNT - 1
+
+        return '%s %.2x' % (__BCHARS[blen], int(v * 255))
+
+    return '|'.join(map(__val_disp, unwrap_lol(channels)))
+
+
+def check_float_range_1(f):
+    """Проверка float значения на попадание в диапазон 0.0-1.0.
+    В случае несоответствия генерируется исключение.
+    Функция предназначена для использования в конструкторах классов."""
+
+    if f < 0.0 or f > 1.0:
+        raise ValueError('value out of range')
+
+
+def check_float_positive(f):
+    """Проверка float значения на допустимое значение (положительное число).
+    В случае несоответствия генерируется исключение.
+    Функция предназначена для использования в конструкторах классов."""
+
+    if f > 0.0:
+        return
+
+    raise ValueError('value out of range')
+
+
+
+def fparam_to_tuple(args, pname, fallback, tolength=None, chkval=None):
+    """Получение и нормализация параметра.
+
+    Метод предназначен для обработки параметров конструкторов классов.
+
+    Параметры:
+        args        - словарь с параметрами (kwargs конструктора);
+        pname       - строка, имя параметра;
+        fallback    - кортеж из float, значение параметра по умолчанию;
+        tolength    - None или положительное целое;
+                      если указано положительное целое - кортеж
+                      расширяется до указаной длины с использованием
+                      значений fallback, повторяемых циклически;
+        chkval      - None или функция, получающая значение,
+                      и генерирующая исключение, если значение недопустимое.
+    Возвращает кортеж из float."""
+
+    pval = args.get(pname, fallback)
+
+    if isinstance(pval, (list, tuple)):
+        if len(pval) < 1:
+            raise ValueError('"%s" parameter must contain at least one float value' % pname)
+
+        pval = list(pval)
+    else:
+        pval = [pval]
+
+    if not callable(chkval):
+        chkval = lambda v: v
+
+    for ix, v in enumerate(pval):
+        try:
+            # принудительно преобразуем значения во float
+            pval[ix] = float(v)
+            # и проверяем само значение
+            chkval(v)
+        except Exception as ex:
+            raise ValueError('value #%d of parameter "%s" is invalid - %s' % (ix + 1, pname, str(ex)))
+
+    pvlen = len(pval)
+    fblen = len(fallback)
+
+    if (tolength is not None) and tolength > 1 and pvlen < tolength:
+        pval += [fallback[ix % fblen] for ix in range(tolength - pvlen)]
+
+    return tuple(pval)
+
+
 def repr_to_str(obj, sli=False):
     """Форматирование строки с именем класса и значениями полей экземпляра
     класса для использования в методах obj.__repr__().
+
     Внимание! Если классы, использующие эту функцию, содержат в полях
     ссылки друг на друга, возможно зацикливание.
     В данной версии функции предотвращение зацикливания пока не реализовано.
@@ -383,8 +468,8 @@ class GradGen():
         return self.position.length
 
     def get_next_value(self):
-        """Метод возвращает очередное значение градиента в виде целого
-        числа в диапазоне 0..255 или списка/кортежа таких целых,
+        """Метод возвращает очередное значение градиента в виде float
+        0.0-1.0 или списка/кортежа таких значений,
         и увеличивает при необходимости счётчик.
         Метод должен быть перекрыт классом-потомком."""
 
@@ -397,11 +482,11 @@ class BufferedGradGen(GradGen):
     """Генератор, хранящий заранее расчитанные значения в буфере.
 
     Поля (могут быть дополнены классом-потомком):
-        buffer      - список целых (или списков/кортежей целых чисел)
-                      в диапазоне 0..255, из которого ведётся выборка
+        buffer      - список float (или списков/кортежей float)
+                      в диапазоне 0.0-1.0, из которого ведётся выборка
                       сгенерированных значений;
         clearBuf    - булевское значение; если равно True (по умолчанию) -
-                    buffer очищается при вызове метода reset()."""
+                      buffer очищается при вызове метода reset()."""
 
     def __init__(self, **kwargs):
         self.clearBuf = kwargs.get('clearBuf', True)
@@ -433,93 +518,22 @@ class BufferedGradGen(GradGen):
         return ret
 
 
-class SineGradGen(BufferedGradGen):
-    """Генератор синусоиды.
-
-    Генерирует синусоиду с длиной периода в length значений.
-
-    Поля (в дополнение к наследственным):
-        levels  - кортеж из одного и более float в диапазоне от 0 до 1.0 -
-                  значения уровней каналов; по умолчанию - (1.0, );
-        phase   - кортеж из одного и более float в диапазоне от 0 до 1.0 -
-                  значения фазы синусоиды для генерируемых значений каналов,
-                  количество значений соответствует количеству значений
-                  в поле levels; по умолчанию - (0.0, )."""
-
-    def __init__(self, **kwargs):
-        """Параметры (в дополнение к наследуемым):
-            levels  - уровни для одного или более каналов (см. описание
-                      поля класса); одно значение float или кортеж/список
-                      из float;
-            phase   - значение фазы синусоиды (см. описание поля класса);
-                      если вместо кортежа той же длины, что параметр
-                      levels указать одно значение float - это значение
-                      будет использовано для всех каналов."""
-
-        def __param_tuple(pname, defval):
-            #TODO возможно, стоит прикрутить проверку диапазонов значений
-            pval = kwargs.get(pname, defval)
-
-            if isinstance(pval, (list, tuple)):
-                if len(pval) < 1:
-                    raise ValueError('"%s" parameter must contain at least one float value' % pname)
-
-                return tuple(pval)
-            elif isinstance(pval, float):
-                return (pval, )
-            else:
-                raise ValueError('"%s" parameter must be float' % pname)
-
-        self.levels = __param_tuple('levels', (1.0, ))
-        self.phase = __param_tuple('phase', (0.0, ))
-
-        _lp = len(self.phase)
-        _ll = len(self.levels)
-
-        if _lp != _ll:
-            if _ll > 1:
-                if _lp != 1:
-                    raise ValueError('parameter "phase" length does not match parameter "levels" length')
-
-                self.phase = tuple([self.phase[0]] * _ll)
-
-        super().__init__(**kwargs)
-
-    def reset(self):
-        super().reset()
-
-        sinCf = 2 * pi / self.position.length
-        sinOffset = pi / 2
-
-        for i in range(self.position.length):
-            v = []
-
-            for ci, level in enumerate(self.levels):
-                pv = i + self.position.length * self.phase[ci]
-                middle = level * MAX_VALUE / 2.0
-
-                v.append(int(middle - middle * (sin(sinOffset + pv * sinCf))))
-
-            self.buffer.append(v)
-
-
 class LineGradGen(BufferedGradGen):
     """Генератор линейного градиента.
     Может быть использован для генерации пилообразных (с mode=GradPosition.REPEAT)
     и треугольных волн (mode=GradPosition.MIRROR).
 
     Поля:
-        channelsFrom, channelsTo  - кортежи из одного и более целых чисел
-            в диапазоне 0..MAX_VALUE (в данном случае "цвет" - понятие
-            условное, т.к. речь идёт о кормлении байтами DMX-512, а там
-            до 512 каналов).
+        channelsFrom, channelsTo  - кортежи из одного и более float
+            в диапазоне 0.0-1.0;
+            количество значений в обоих кортежах может совпадать.
         Количество значений в переходе управляется полем position.length."""
 
     def __init__(self, **kwargs):
         """Параметры (в дополнение к "наследственным"):
             channelsFrom, channelsTo (см. описания одноимённых полей);
                 их значения могут быть указаны в виде кортежей или преобразованы
-                из значений цветов вызовами rgb_from_hls(), rgb_from_str()."""
+                из значений цветов вызовами hls_to_rgb(), str_to_rgb()."""
 
         def __channels(parName, defv, cklen):
             c = kwargs.get(parName, defv)
@@ -677,40 +691,101 @@ class ConstantGradGen(GradGen):
         return self.value
 
 
-class SquareGradGen(BufferedGradGen):
+class WaveGradGen(BufferedGradGen):
+    """Базовый класс для генераторов волн.
+
+    Поле position.length задаёт количество значений в буфере.
+    Дополнительные поля (в дополнение к наследственным):
+        levels  - кортеж из одного и более float в диапазоне от 0 до 1.0 -
+                  максимальные значения уровней каналов;
+                  по умолчанию - (1.0, );
+                  количество каналов генератора задаётся этим параметром;
+        lowLevels - минимальные значения уровней каналов (аналогично
+                  полю levels);
+        periods - кортеж из одного и более положительных float,
+                  задаёт количество периодов волны для одного
+                  или нескольких каналов;
+                  если указано меньше значений, чем количество каналов -
+                  значения периодов повторяются циклически "до заполнения";
+        phases  - кортеж из одного и более float в диапазоне от 0 до 1.0 -
+                  значения фазы волны для генерируемых значений каналов;
+                  по умолчанию - (0.0, )
+                  если указано меньше значений, чем количество каналов -
+                  значения периодов повторяются циклически "до заполнения"."""
+
+    def __init__(self, **kwargs):
+        """Параметры (в дополнение к наследуемым):
+            levels, phases, periods (см. описание полей выше);
+            Примечание: вместо кортежей этим параметрам можно присваивать
+            по одному значению float, в этом случае параметр будет
+            преобразован в кортеж из одного элемента."""
+
+        self.levels = fparam_to_tuple(kwargs, 'levels', (1.0, ), None, check_float_range_1)
+        _ll = len(self.levels)
+
+        self.lowLevels = fparam_to_tuple(kwargs, 'lowLevels', (0.0, ), _ll, check_float_range_1)
+
+        self.phases = fparam_to_tuple(kwargs, 'phases', (0.0, ), _ll, check_float_range_1)
+
+        self.periods = fparam_to_tuple(kwargs, 'periods', (1.0, ), _ll, check_float_positive)
+
+        super().__init__(**kwargs)
+
+
+class SineWaveGradGen(WaveGradGen):
+    """Генератор синусоиды."""
+
+    def reset(self):
+        super().reset()
+
+        periodCf = [(self.position.length / period) for period in self.periods]
+        phaseCf = [(periodCf[ci] * self.phases[ci]) for ci in range(len(self.levels))]
+
+        sinCf = [(2 * pi / pp) for pp in periodCf]
+        sinOffset = pi / 2 # дабы синусоида завсегда начиналась с минимального значения
+
+        #FIXME исправить генерацию синусоиды с учётом lowLevels
+
+        for i in range(self.position.length):
+            v = []
+
+            for ci, level in enumerate(self.levels):
+                middle = level / 2.0
+                v.append(middle - middle * sin(sinOffset + (i + phaseCf[ci]) * sinCf[ci]))
+
+            self.buffer.append(v)
+
+
+class SquareWaveGradGen(WaveGradGen):
     """Генератор меандра.
 
-    Поля класса:
-        LOW_VALUE   - целое, 0..255, значение "нуля" меандра по умолчанию;
-        HIGH_VALUE  - целое, 0..255, значение "единицы" меандра по умолчанию.
-
     Поля экземпляра класса (в дополнение к унаследованным):
-        phase       - фаза, float, 0.0-1.0;
-                      по умолчанию - 0.0;
-        dutyCycle   - коэффициент заполнения, float, 0.0-1.0
-                      по умолчанию - 1.0;
-        lowv        - целое, 0..255, значение "нуля" меандра;
-        highv       - целое, 0..255, значение "единицы" меандра."""
-
-    DEFAULT_MODE = GradPosition.REPEAT
-
-    LOW_VALUE = 0
-    HIGH_VALUE = MAX_VALUE
-
-    #TODO присобачить реализацию длительностей импульса и паузы
+        dutyCycles  - коэффициенты заполнения для каналов;
+                      по умолчанию - 1.0."""
 
     def __init__(self, **kwargs):
         """Параметры: см. описание полей экземпляра класса."""
 
-        self.lowv = kwargs.get('lowv', self.LOW_VALUE)
-        self.highv = kwargs.get('highv', self.HIGH_VALUE)
-        self.phase = kwargs.get('phase', 0.0)
-        self.dutyCycle = kwargs.get('dutyCycle', 0.5)
+        __DEF_DC = 1.0
+
+        self.dutyCycles = fparam_to_tuple(kwargs, 'dutyCycles', (__DEF_DC, ), None, check_float_range_1)
 
         super().__init__(**kwargs)
 
+        # костылинг, т.к. на момент присвоения значения dutyCycles
+        # количество каналов ещё не было известно
+        ldc = len(self.dutyCycles)
+        nchns = len(self.levels)
+        if ldc < nchns:
+            self.dutyCycles += [__DEF_DC] * (nchns - ldc)
+
     def reset(self):
         super().reset()
+
+        periodCf = [(self.position.length / period) for period in self.periods]
+        phaseCf = [(periodCf[ci] * self.phases[ci]) for ci in range(len(self.levels))]
+        print(f'{periodCf=}, {phaseCf=}')
+        #FIXME доделать генерацию меандра
 
         edge = self.position.length * self.dutyCycle
         highBegin = int(1.0 - edge)
