@@ -16,8 +16,8 @@ title = $(basename)
 title_version = "$(title) r$(version)"
 #
 todo = TODO
-docs = $(todo) Changelog
-# COPYING README.md
+readme = README.md
+docs = $(todo) Changelog COPYING $(readme)
 zipname = $(basename).zip
 arcname = $(basename)$(arcx)
 srcarcname = $(basename)-$(branch)-src$(arcx)
@@ -63,9 +63,7 @@ show-branch:
 
 docview:
 	$(eval docname = README.htm)
-	@echo "<html><head><meta charset="utf-8"><title>$(title_version) README</title></head><body>" >$(docname)
-	markdown_py README.md >>$(docname)
-	@echo "</body></html>" >>$(docname)
+	grip $(readme) --export $(docname) --no-inline
 	x-www-browser $(docname)
 	#rm $(docname)
 

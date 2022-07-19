@@ -37,4 +37,25 @@
 потомку класса GenGradGen, а его, в свою очередь, скормить экземпляру
 GradSender.
 
+Пример:
+```
+sparklegen = SequenceGenGradGen(mode=GradPosition.RANDOM)
+
+for iname in range(1, 4):
+    sgN = ImageGradGen(image=Image.open(f'example_sparkle{iname}.png'),
+                       mode=GradPosition.REPEAT)
+    sparklegen.add_subgen(sgN)
+
+seqgen = SequenceGenGradGen(mode=GradPosition.STOP)
+
+seqgen.add_subgen(ImageGradGen(image=Image.open('example_start.png')),
+                  sparklegen,
+                  ImageGradGen(image=Image.open('example_completion.png')))
+
+sender = GradSender(generator=seqgen,
+                    iterations=seqgen.get_n_values())
+sender.run()
+sender.blackout()
+```
+
 Подробнее - см. help(dmxgrad). Дублировать сюда docstrings из модуля - лень.

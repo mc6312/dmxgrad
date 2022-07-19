@@ -47,7 +47,9 @@ def setup_sparkle_demo():
 def demo_SineWaveGradGen():
     ggen = SineWaveGradGen(length=GradPosition.compute_length(1, GradSender.DEFAULT_TICK_INTERVAL),
                 levels=(1.0, 1.0, 1.0),
-                phase=(0.0, 0.33, 0.66),
+                lowLevels=(0.0, 0.0, 0.5),
+                phases=(0.0, 0.33, 0.66),
+                periods=(1.0, 2.0, 3.0),
                 mode=GradPosition.REPEAT,
                 name='sine_wave')
 
@@ -56,8 +58,8 @@ def demo_SineWaveGradGen():
 
 def demo_LineGradGen():
     return LineGradGen(length=GradPosition.compute_length(0.5, GradSender.DEFAULT_TICK_INTERVAL),
-                channelsFrom=(0, 255, 0),
-                channelsTo=(255, 0, 255),
+                channelsFrom=(0, 1, 0),
+                channelsTo=(1, 0, 1),
                 mode=GradPosition.REPEAT,
                 name='line')
 
@@ -71,11 +73,18 @@ def demo_SquareWaveGradGen():
     dgen = ParallelGenGradGen(name='parallel')
 
     for i in range(3):
-        dgen.add_subgen(SquareWaveGradGen(phase=0.33 * i,
+        dgen.add_subgen(SquareWaveGradGen(phases=0.33 * i,
                             length=GradPosition.compute_length(1, GradSender.DEFAULT_TICK_INTERVAL),
+                            mode=GradPosition.REPEAT,
                             name='square#%d' % i))
 
     return dgen
+
+
+def demo_NoiseGen():
+    return NoiseGen(minValues=(0.5, 0.5, 0.5),
+                maxValues=(1.0, 1.0, 1.0),
+                name='noise')
 
 
 def demo_GenGradGen():
@@ -103,10 +112,11 @@ def demo_GenGradGen():
 
 
 def choose_demonstration():
-    demos = (('SineWaveGradGen', demo_SineWaveGradGen),
-             ('LineGradGen', demo_LineGradGen),
-             ('ImageGradGen', demo_ImageGradGen),
+    demos = (('LineGradGen', demo_LineGradGen),
+             ('SineWaveGradGen', demo_SineWaveGradGen),
              ('SquareWaveGradGen', demo_SquareWaveGradGen),
+             ('NoiseGen', demo_NoiseGen),
+             ('ImageGradGen', demo_ImageGradGen),
              ('GenGradGen', demo_GenGradGen),
              )
 
@@ -132,7 +142,7 @@ def main():
     class MySender(GradSender):
         def display(self, values, gen):
             print('%4s: %s  %s' % ('∞' if self.iterations is None else self.iterations,
-                  channels_to_str(values),
+                  channels_to_str(values, 8),
                   gen.get_disp_name()))
 
     dgen = choose_demonstration()

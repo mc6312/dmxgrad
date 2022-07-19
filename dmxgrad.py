@@ -29,7 +29,7 @@
     along with this program.  If not, see <http://www.gnu.org/licenses/>."""
 
 
-REVISION = 12
+REVISION = 13
 
 
 from math import sin, pi
@@ -141,18 +141,25 @@ def unwrap_lol(sl):
     return dl
 
 
-def channels_to_str(channels):
+def channels_to_str(channels, barlen=None):
     """Пребразование списка/кортежа, содержащего значения float
     в диапазоне 0.0-1.0 (и/или кортежи с такими значениями) в строку
     с горизонтальными диаграммами и численными значениями (в виде
     шестнадцатиричных чисел в диапазоне 0x00-0xFF).
-    Функция предназначена для визуализации при отладке генераторов."""
+    Функция предназначена для визуализации при отладке генераторов.
 
-    #__BCHARS = '▏▎▍▌▋▊▉'
+    Параметры:
+        channels    - список или кортеж со значениями каналов;
+        barlen      - None или целое - длина прогрессбара;
+                      Если None или <= 1 - отобража ется одним символом
+                      псевдографики, иначе - полосой в barlen символов.
+
+    Функция возвращает строку."""
+
     __BCHARS = '░▒▓█'
     __BCCOUNT = len(__BCHARS)
 
-    def __val_disp(v):
+    def __bar1(v):
         blen = int(v * __BCCOUNT)
         if blen >= __BCCOUNT:
             # значение 1.0 при преобразовании приведет к выходу за
@@ -160,9 +167,17 @@ def channels_to_str(channels):
             # > 1.0
             blen = __BCCOUNT - 1
 
-        return '%s %.2x' % (__BCHARS[blen], int(v * 255))
+        return __BCHARS[blen]
 
-    return '|'.join(map(__val_disp, unwrap_lol(channels)))
+    def __barN(v):
+        blen = int(v * barlen)
+
+        return '%s%s' % ('●' * blen, '◦' * (barlen - blen))
+
+    barfunc = __bar1 if (barlen is None or barlen <= 1) else __barN
+
+    return '|'.join(map(lambda v: '%.2x %s' % (int(v * 255), barfunc(v)),
+                        unwrap_lol(channels)))
 
 
 def check_float_range_1(f):
@@ -430,6 +445,18 @@ class GradGen():
 
     DEFAULT_MODE = GradPosition.STOP
 
+    def init_attrs(self, **kwargs):
+        """Обработка параметров.
+        Метод вызывается из конструктора класса.
+        При необходимости может быть перекрыт классом-потомком,
+        в этом случае метод-наследник должен вызывать "предка",
+        если требуется обработать "наследственные" параметры."""
+
+        self.position = GradPosition(kwargs.get('length', 1),
+            kwargs.get('mode', self.DEFAULT_MODE))
+
+        self.name = kwargs.get('name', '%s%x' % (self.__class__.__name__, id(self)))
+
     def __init__(self, **kwargs):
         """Параметры: см. список полей экземпляра класса.
 
@@ -438,13 +465,13 @@ class GradGen():
         параметров, дабы не заморачиваться при наследовании
         и вызовах super().
         Названия передаваемых параметров должны соответствовать
-        названиям полей экземпляра соотв. класса."""
+        названиям полей экземпляра соотв. класса.
+        Классам-наследникам собственные конструкторы иметь не обязательно,
+        но может понадобиться перекрывать метод init_attrs(), т.к.
+        конструктор вызывает метод reset(), которому нужны все правильно
+        присвоенные поля."""
 
-        self.position = GradPosition(kwargs.get('length', 1),
-            kwargs.get('mode', self.DEFAULT_MODE))
-
-        self.name = kwargs.get('name', '%s%x' % (self.__class__.__name__, id(self)))
-
+        self.init_attrs(**kwargs)
         self.reset()
 
     def get_disp_name(self):
@@ -496,10 +523,11 @@ class BufferedGradGen(GradGen):
         clearBuf    - булевское значение; если равно True (по умолчанию) -
                       buffer очищается при вызове метода reset()."""
 
-    def __init__(self, **kwargs):
+    def init_attrs(self, **kwargs):
+        super().init_attrs(**kwargs)
+
         self.clearBuf = kwargs.get('clearBuf', True)
         self.buffer = []
-        super().__init__(**kwargs)
 
         d = kwargs.get('data', None)
         if d:
@@ -537,55 +565,34 @@ class LineGradGen(BufferedGradGen):
             количество значений в обоих кортежах может совпадать.
         Количество значений в переходе управляется полем position.length."""
 
-    def __init__(self, **kwargs):
+    def init_attrs(self, **kwargs):
         """Параметры (в дополнение к "наследственным"):
             channelsFrom, channelsTo (см. описания одноимённых полей);
                 их значения могут быть указаны в виде кортежей или преобразованы
                 из значений цветов вызовами hls_to_rgb(), str_to_rgb()."""
 
-        def __channels(parName, defv, cklen):
-            c = kwargs.get(parName, defv)
+        super().init_attrs(**kwargs)
 
-            __ERR = '%s.__init__(): parameter "%s" is invalid - %%s' % (self.__class__.__name__, parName)
-
-            if not isinstance(c, tuple):
-                raise ValueError(__ERR % 'invalid type')
-
-            if cklen is not None and len(c) != cklen:
-                raise ValueError(__ERR % 'invalid length')
-
-            for ix, v in enumerate(c, 1):
-                if not isinstance(v, int):
-                    raise ValueError(__ERR % 'invalid type of element #%d' % ix)
-
-                if v < 0 or v > MAX_VALUE:
-                    raise ValueError(__ERR % 'element #%d out of range' % ix)
-
-            return c
-
-        self.channelsFrom = __channels('channelsFrom', (0,), None)
-        self.channelsTo = __channels('channelsTo', (MAX_VALUE,), len(self.channelsFrom))
-
-        super().__init__(**kwargs)
+        self.channelsFrom = fparam_to_tuple(kwargs, 'channelsFrom', (0,), None, check_float_range_1)
+        self.channelsTo = fparam_to_tuple(kwargs, 'channelsTo', (MAX_VALUE,), len(self.channelsFrom), check_float_range_1)
 
     def reset(self):
         super().reset()
 
         _len = self.position.length - 1
-        _chans = len(self.channelsFrom)
 
         deltas = []
         cvals = []
 
-        for c in range(_chans):
-            deltas.append((self.channelsTo[c] - self.channelsFrom[c]) / _len)
-            cvals.append(self.channelsFrom[c])
+        for ci, cFrom in enumerate(self.channelsFrom):
+            deltas.append((self.channelsTo[ci] - cFrom) / _len)
+            cvals.append(cFrom)
 
         for i in range(self.position.length):
-            self.buffer.append(tuple(map(int, cvals)))
+            self.buffer.append(tuple(cvals))
 
-            for c in range(_chans):
-                cvals[c] += deltas[c]
+            for ci, cval in enumerate(cvals):
+                cvals[ci] = cval + deltas[ci]
 
 
 class ImageGradGen(BufferedGradGen):
@@ -610,9 +617,10 @@ class ImageGradGen(BufferedGradGen):
        каналов и эти экземпляры добавить в экземпляр ParallelGenGradGen;
        в этом случае можно использовать каналы из разных изображений."""
 
-    def __init__(self, **kwargs):
-        """Параметры: см. описание полей экземпляра класса.
-        """
+    def init_attrs(self, **kwargs):
+        """Параметры: см. описание полей экземпляра класса."""
+
+        super().init_attrs(**kwargs)
 
         self.image = kwargs.get('image', None)
         if not self.image:
@@ -642,8 +650,6 @@ class ImageGradGen(BufferedGradGen):
 
         self.srcx = kwargs.get('srcx', 0)
         self.srcy = kwargs.get('srcy', 0)
-
-        super().__init__(**kwargs)
 
     def reset(self):
         # проверяем выход за границы именно здесь, т.к. length/srcx/srcy
@@ -688,10 +694,10 @@ class ConstantGradGen(GradGen):
 
     Счетчик положения не используется."""
 
-    def __init__(self, **kwargs):
+    def init_attrs(self, **kwargs):
         """Параметры: см. описание полей экземпляра класса."""
 
-        super().__init__(**kwargs)
+        super().init_attrs(**kwargs)
 
         self.values = fparam_to_tuple(kwargs, 'value', (0, ))
 
@@ -709,13 +715,13 @@ class NoiseGen(GradGen):
 
     Счетчик положения не используется."""
 
-    def __init__(self, **kwargs):
+    def init_attrs(self, **kwargs):
+        super().init_attrs(**kwargs)
+
         self.minValues = fparam_to_tuple(kwargs, 'minValues', (0.0, ),
                             None, check_float_range_1)
         self.maxValues = fparam_to_tuple(kwargs, 'maxValues', (1.0, ),
                             len(self.minValues), check_float_range_1)
-
-        super().__init__(**kwargs)
 
     def reset(self):
         pass
@@ -753,12 +759,14 @@ class WaveGradGen(BufferedGradGen):
                   если указано меньше значений, чем количество каналов -
                   значения периодов повторяются циклически "до заполнения"."""
 
-    def __init__(self, **kwargs):
+    def init_attrs(self, **kwargs):
         """Параметры (в дополнение к наследуемым):
             levels, phases, periods (см. описание полей выше);
             Примечание: вместо кортежей этим параметрам можно присваивать
             по одному значению float, в этом случае параметр будет
             преобразован в кортеж из одного элемента."""
+
+        super().init_attrs(**kwargs)
 
         self.levels = fparam_to_tuple(kwargs, 'levels', (1.0, ), None, check_float_range_1)
         _ll = len(self.levels)
@@ -769,8 +777,6 @@ class WaveGradGen(BufferedGradGen):
 
         self.periods = fparam_to_tuple(kwargs, 'periods', (1.0, ), _ll, check_float_positive)
 
-        super().__init__(**kwargs)
-
 
 class SineWaveGradGen(WaveGradGen):
     """Генератор синусоиды."""
@@ -778,20 +784,28 @@ class SineWaveGradGen(WaveGradGen):
     def reset(self):
         super().reset()
 
-        periodCf = [(self.position.length / period) for period in self.periods]
-        phaseCf = [(periodCf[ci] * self.phases[ci]) for ci in range(len(self.levels))]
+        periodCf = []
+        phaseCf = []
+        amplCf = []
+        sinCf = []
 
-        sinCf = [(2 * pi / pp) for pp in periodCf]
-        sinOffset = pi / 2 # дабы синусоида завсегда начиналась с минимального значения
+        for ci, level in enumerate(self.levels):
+            perlen = self.position.length / self.periods[ci]
+            periodCf.append(perlen)
+            phaseCf.append(perlen * self.phases[ci])
 
-        #FIXME исправить генерацию синусоиды с учётом lowLevels
+            amplitude = (level - self.lowLevels[ci]) / 2.0
+            amplCf.append((amplitude, level - amplitude))
+
+            sinCf.append(2 * pi / perlen)
+
+        sinOffsetX = pi / 2 # дабы синусоида завсегда начиналась с минимального значения
 
         for i in range(self.position.length):
             v = []
 
-            for ci, level in enumerate(self.levels):
-                middle = level / 2.0
-                v.append(middle - middle * sin(sinOffset + (i + phaseCf[ci]) * sinCf[ci]))
+            for ci, (amplitude, offsetY) in enumerate(amplCf):
+                v.append(offsetY - amplitude * sin(sinOffsetX + (i + phaseCf[ci]) * sinCf[ci]))
 
             self.buffer.append(v)
 
@@ -803,38 +817,51 @@ class SquareWaveGradGen(WaveGradGen):
         dutyCycles  - коэффициенты заполнения для каналов;
                       по умолчанию - 1.0."""
 
-    def __init__(self, **kwargs):
+    def init_attrs(self, **kwargs):
         """Параметры: см. описание полей экземпляра класса."""
+
+        super().init_attrs(**kwargs)
 
         __DEF_DC = 1.0
 
-        self.dutyCycles = fparam_to_tuple(kwargs, 'dutyCycles', (__DEF_DC, ), None, check_float_range_1)
-
-        super().__init__(**kwargs)
-
-        # костылинг, т.к. на момент присвоения значения dutyCycles
-        # количество каналов ещё не было известно
-        ldc = len(self.dutyCycles)
-        nchns = len(self.levels)
-        if ldc < nchns:
-            self.dutyCycles += [__DEF_DC] * (nchns - ldc)
+        self.dutyCycles = fparam_to_tuple(kwargs,
+            'dutyCycles',
+            (__DEF_DC, ),
+            len(self.levels),
+            check_float_range_1)
 
     def reset(self):
         super().reset()
 
-        periodCf = [(self.position.length / period) for period in self.periods]
-        phaseCf = [(periodCf[ci] * self.phases[ci]) for ci in range(len(self.levels))]
-        print(f'{periodCf=}, {phaseCf=}')
-        #FIXME доделать генерацию меандра
+        perLengths = []
+        posHi0 = []
+        posHi1 = []
 
-        edge = self.position.length * self.dutyCycle
-        highBegin = int(1.0 - edge)
-        highEnd = int(edge)
-        _phase = self.position.length - int(self.position.length * self.phase)
+        nchannels = len(self.levels)
+
+        for ci, level in enumerate(self.levels):
+            # длина полного периода
+            perlen = self.position.length / self.periods[ci]
+            perLengths.append(perlen)
+
+            # длина полуволны с "высоким" уровнем
+            hilen = perlen / (1.0 + self.dutyCycles[ci])
+
+            # начало полуволны с "высоким" уровнем
+            startHi = perlen * self.phases[ci]
+            posHi0.append(startHi)
+            # конец полуволны с "высоким" уровнем
+            posHi1.append(startHi + perlen - hilen)
 
         for i in range(self.position.length):
-            x = (i + _phase) % self.position.length
-            self.buffer.append(self.lowv if x < highBegin or x > highEnd else self.highv)
+            chns = []
+
+            for ci in range(nchannels):
+                v = i % perLengths[ci]
+
+                chns.append(self.levels[ci] if v >= posHi0[ci] and v < posHi1[ci] else self.lowLevels[ci])
+
+            self.buffer.append(chns)
 
 
 class GenGradGen(GradGen):
@@ -843,9 +870,10 @@ class GenGradGen(GradGen):
     Внимание! Поля экземпляра класса GenGradGen (position и т.п.)
     могут не использоваться классами-потомками."""
 
-    def __init__(self, **kwargs):
+    def init_attrs(self, **kwargs):
+        super().init_attrs(**kwargs)
+
         self.generators = []
-        super().__init__(**kwargs)
 
     def get_disp_name(self):
         return '%s(%s)' % (self.name, ', '.join([gen.get_disp_name() for gen in self.generators]))
@@ -907,12 +935,12 @@ class RepeaterGenGradGen(GradGen):
 
         return gen
 
-    def __init__(self, **kwargs):
+    def init_attrs(self, **kwargs):
+        super().init_attrs(**kwargs)
+
         self.itersleft = 0
         self.subgen = self.__chk_subgen(kwargs.get('subgen', None))
         self.__accum = None
-
-        super().__init__(**kwargs)
 
     def get_disp_name(self):
         return '%s(%s)' % (self.name, self.subgen.get_disp_name())
@@ -946,11 +974,11 @@ class SequenceGenGradGen(GenGradGen):
     соответствует значению соотв. position.length.
     По окончании списка генераторов перебор начинается сначала."""
 
-    def __init__(self, **kwargs):
+    def init_attrs(self, **kwargs):
+        super().init_attrs(**kwargs)
+
         self.activeGen = None
         self.activeItrs = 0
-
-        super().__init__(**kwargs)
 
     def __set_active_gen(self):
         if self.generators:
