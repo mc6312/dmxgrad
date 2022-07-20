@@ -29,7 +29,7 @@
     along with this program.  If not, see <http://www.gnu.org/licenses/>."""
 
 
-REVISION = 13
+REVISION = 14
 
 
 from math import sin, pi
@@ -121,24 +121,39 @@ def get_supported_image(fromimg, grayscale=False):
     return ret
 
 
-def unwrap_lol(sl):
+def unwrap_lol(src, chktype=None):
     """Рекурсивное разворачивание списка списков (и/или кортежей)
-    чисел в один список. Возвращает линейный список.
-    Может использоваться генераторами, получающими значения от других
-    генераторов (например, от ParallelGenGradGen)."""
+    в один линейный список.
 
-    if isinstance(sl, int):
-        return [sl]
+    Функция может использоваться генераторами, получающими значения от
+    других генераторов (например, от ParallelGenGradGen), а также при
+    обработке параметров-списков, передаваемых конструкторам.
 
-    dl = []
+    Параметры:
+        src     - входной параметр - список/кортеж или одиночное значение;
+        chktype - None или кортеж типов для проверки соответствия
+                  типа входного параметра; если None - тип не проверяется.
 
-    for v in sl:
-        if isinstance(v, list) or isinstance(v, tuple):
-            dl += unwrap_lol(v)
+    Функция возвращает линейный список."""
+
+    def __do_check(v):
+        if isinstance(chktype, tuple) and not isinstance(v, chktype):
+            raise ValueError('unwrap_lol(): invalid parameter type (must be %s)' % (' or '.join(map(lambda c: c.__name__, chktype))))
+
+        return v
+
+    if not isinstance(src, (list, tuple)):
+        return [__do_check(src)]
+
+    ret = []
+
+    for v in src:
+        if isinstance(v, (list, tuple)):
+            ret += unwrap_lol(v)
         else:
-            dl.append(v)
+            ret.append(__do_check(v))
 
-    return dl
+    return ret
 
 
 def channels_to_str(channels, barlen=None):
@@ -156,7 +171,7 @@ def channels_to_str(channels, barlen=None):
 
     Функция возвращает строку."""
 
-    __BCHARS = '░▒▓█'
+    __BCHARS = '-+*#'
     __BCCOUNT = len(__BCHARS)
 
     def __bar1(v):
@@ -172,7 +187,7 @@ def channels_to_str(channels, barlen=None):
     def __barN(v):
         blen = int(v * barlen)
 
-        return '%s%s' % ('●' * blen, '◦' * (barlen - blen))
+        return '%s%s' % ('#' * blen, '-' * (barlen - blen))
 
     barfunc = __bar1 if (barlen is None or barlen <= 1) else __barN
 
@@ -198,55 +213,6 @@ def check_float_positive(f):
         return
 
     raise ValueError('value out of range')
-
-
-
-def fparam_to_tuple(args, pname, fallback, tolength=None, chkval=None):
-    """Получение и нормализация параметра.
-
-    Метод предназначен для обработки параметров конструкторов классов.
-
-    Параметры:
-        args        - словарь с параметрами (kwargs конструктора);
-        pname       - строка, имя параметра;
-        fallback    - кортеж из float, значение параметра по умолчанию;
-        tolength    - None или положительное целое;
-                      если указано положительное целое - кортеж
-                      расширяется до указаной длины с использованием
-                      значений fallback, повторяемых циклически;
-        chkval      - None или функция, получающая значение,
-                      и генерирующая исключение, если значение недопустимое.
-    Возвращает кортеж из float."""
-
-    pval = args.get(pname, fallback)
-
-    if isinstance(pval, (list, tuple)):
-        if len(pval) < 1:
-            raise ValueError('"%s" parameter must contain at least one float value' % pname)
-
-        pval = list(pval)
-    else:
-        pval = [pval]
-
-    if not callable(chkval):
-        chkval = lambda v: v
-
-    for ix, v in enumerate(pval):
-        try:
-            # принудительно преобразуем значения во float
-            pval[ix] = float(v)
-            # и проверяем само значение
-            chkval(v)
-        except Exception as ex:
-            raise ValueError('value #%d of parameter "%s" is invalid - %s' % (ix + 1, pname, str(ex)))
-
-    pvlen = len(pval)
-    fblen = len(fallback)
-
-    if (tolength is not None) and tolength > 1 and pvlen < tolength:
-        pval += [fallback[ix % fblen] for ix in range(tolength - pvlen)]
-
-    return tuple(pval)
 
 
 def repr_to_str(obj, sli=False):
@@ -445,6 +411,48 @@ class GradGen():
 
     DEFAULT_MODE = GradPosition.STOP
 
+    @staticmethod
+    def param_get_grad(args, pname, fallback=None, fchkval=None):
+        """Получение параметра из словаря.
+
+        Метод предназначен для обработки параметров в конструкторах
+        и методах init_attrs().
+
+        Параметры:
+            args        - словарь параметров;
+            pname       - строка, имя параметра;
+            fallback    - значение параметра по умолчанию;
+                          fallback=None и в словаре нет соотв. параметра -
+                          метод генерирует исключение;
+            fchkval     - None или функция (метод) для проверки
+                          полученного значения;
+                          на входе получает два параметра:
+                            1. проверяемое значение;
+                            2. название параметра (для сообщений об ошибках);
+                          при необходимости функция может приводить
+                          совместимые типы значений к требуемым, и/или
+                          ограничивать диапазон значения;
+                          функция возвращает значение;
+                          при ошибках функция должна генерировать исключение.
+
+        Метод возвращает полученное значение."""
+
+        retv = args.get(pname, fallback)
+        if retv is None:
+            raise ValueError('parameter "%s" is missing' % pname)
+
+        if callable(fchkval):
+            retv = fchkval(retv, pname)
+
+        return retv
+
+    @staticmethod
+    def check_isgrad(v, pname):
+        if not isinstance(v, GradGen):
+            raise ValueError('parameter "%s" must be subclass of GradGen' % pname)
+
+        return v
+
     def init_attrs(self, **kwargs):
         """Обработка параметров.
         Метод вызывается из конструктора класса.
@@ -493,6 +501,54 @@ class GradGen():
 
     def __repr__(self):
         return repr_to_str(self)
+
+    @staticmethod
+    def param_get_tof(args, pname, fallback, tolength=None, chkval=None):
+        """Получение и нормализация параметра из словаря.
+
+        Метод предназначен для обработки параметров конструкторов классов.
+
+        Параметры:
+            args        - словарь с параметрами (kwargs конструктора);
+            pname       - строка, имя параметра;
+            fallback    - кортеж из float, значение параметра по умолчанию;
+            tolength    - None или положительное целое;
+                          если указано положительное целое - кортеж
+                          расширяется до указаной длины с использованием
+                          значений fallback, повторяемых циклически;
+            chkval      - None или функция, получающая значение,
+                          и генерирующая исключение, если значение недопустимое.
+        Возвращает кортеж из float."""
+
+        pval = args.get(pname, fallback)
+
+        if isinstance(pval, (list, tuple)):
+            if len(pval) < 1:
+                raise ValueError('"%s" parameter must contain at least one float value' % pname)
+
+            pval = list(pval)
+        else:
+            pval = [pval]
+
+        if not callable(chkval):
+            chkval = lambda v: v
+
+        for ix, v in enumerate(pval):
+            try:
+                # принудительно преобразуем значения во float
+                pval[ix] = float(v)
+                # и проверяем само значение
+                chkval(v)
+            except Exception as ex:
+                raise ValueError('value #%d of parameter "%s" is invalid - %s' % (ix + 1, pname, str(ex)))
+
+        pvlen = len(pval)
+        fblen = len(fallback)
+
+        if (tolength is not None) and tolength > 1 and pvlen < tolength:
+            pval += [fallback[ix % fblen] for ix in range(tolength - pvlen)]
+
+        return tuple(pval)
 
     def get_n_values(self):
         """Метод возвращает максимальное количество возвращаемых значений.
@@ -573,8 +629,8 @@ class LineGradGen(BufferedGradGen):
 
         super().init_attrs(**kwargs)
 
-        self.channelsFrom = fparam_to_tuple(kwargs, 'channelsFrom', (0,), None, check_float_range_1)
-        self.channelsTo = fparam_to_tuple(kwargs, 'channelsTo', (MAX_VALUE,), len(self.channelsFrom), check_float_range_1)
+        self.channelsFrom = self.param_get_tof(kwargs, 'channelsFrom', (0,), None, check_float_range_1)
+        self.channelsTo = self.param_get_tof(kwargs, 'channelsTo', (MAX_VALUE,), len(self.channelsFrom), check_float_range_1)
 
     def reset(self):
         super().reset()
@@ -699,7 +755,7 @@ class ConstantGradGen(GradGen):
 
         super().init_attrs(**kwargs)
 
-        self.values = fparam_to_tuple(kwargs, 'value', (0, ))
+        self.values = self.param_get_tof(kwargs, 'value', (0, ))
 
     def get_next_value(self):
         return self.values
@@ -718,9 +774,9 @@ class NoiseGen(GradGen):
     def init_attrs(self, **kwargs):
         super().init_attrs(**kwargs)
 
-        self.minValues = fparam_to_tuple(kwargs, 'minValues', (0.0, ),
+        self.minValues = self.param_get_tof(kwargs, 'minValues', (0.0, ),
                             None, check_float_range_1)
-        self.maxValues = fparam_to_tuple(kwargs, 'maxValues', (1.0, ),
+        self.maxValues = self.param_get_tof(kwargs, 'maxValues', (1.0, ),
                             len(self.minValues), check_float_range_1)
 
     def reset(self):
@@ -768,14 +824,14 @@ class WaveGradGen(BufferedGradGen):
 
         super().init_attrs(**kwargs)
 
-        self.levels = fparam_to_tuple(kwargs, 'levels', (1.0, ), None, check_float_range_1)
+        self.levels = self.param_get_tof(kwargs, 'levels', (1.0, ), None, check_float_range_1)
         _ll = len(self.levels)
 
-        self.lowLevels = fparam_to_tuple(kwargs, 'lowLevels', (0.0, ), _ll, check_float_range_1)
+        self.lowLevels = self.param_get_tof(kwargs, 'lowLevels', (0.0, ), _ll, check_float_range_1)
 
-        self.phases = fparam_to_tuple(kwargs, 'phases', (0.0, ), _ll, check_float_range_1)
+        self.phases = self.param_get_tof(kwargs, 'phases', (0.0, ), _ll, check_float_range_1)
 
-        self.periods = fparam_to_tuple(kwargs, 'periods', (1.0, ), _ll, check_float_positive)
+        self.periods = self.param_get_tof(kwargs, 'periods', (1.0, ), _ll, check_float_positive)
 
 
 class SineWaveGradGen(WaveGradGen):
@@ -824,7 +880,7 @@ class SquareWaveGradGen(WaveGradGen):
 
         __DEF_DC = 1.0
 
-        self.dutyCycles = fparam_to_tuple(kwargs,
+        self.dutyCycles = self.param_get_tof(kwargs,
             'dutyCycles',
             (__DEF_DC, ),
             len(self.levels),
@@ -868,12 +924,21 @@ class GenGradGen(GradGen):
     """Генератор, возвращающий значения от вложенных генераторов.
 
     Внимание! Поля экземпляра класса GenGradGen (position и т.п.)
-    могут не использоваться классами-потомками."""
+    могут не использоваться классами-потомками.
+
+    Поля (в дополнение к наследственным):
+        generators  - список экземпляров потомков GradGen."""
 
     def init_attrs(self, **kwargs):
+        """Инициализация полей.
+
+        Параметры:
+            subgen  - список экземпляров потомков GradGen."""
+
         super().init_attrs(**kwargs)
 
-        self.generators = []
+        self.generators = unwrap_lol(kwargs.get('subgen', []), (GradGen,))
+        self.subgen_added()
 
     def get_disp_name(self):
         return '%s(%s)' % (self.name, ', '.join([gen.get_disp_name() for gen in self.generators]))
@@ -927,19 +992,16 @@ class RepeaterGenGradGen(GradGen):
     количество раз.
     Не является потомком GenGradGen, несмотря на название класса.
     Наследственное поле "position" используется только как хранилище
-    количества повторов, position.mode игнорируется."""
+    количества повторов, position.mode игнорируется.
+    Временный класс-костыль до момента переделки Parallel/SequenceGenGradGen."""
 
-    def __chk_subgen(self, gen):
-        if not isinstance(gen, GradGen):
-            raise ValueError('invalid "gen" parameter type (must be subclass of GradGen)')
-
-        return gen
+    #TODO возможно, имеет смысл переделать класс GenGradGen или Parallel/SequenceGenGradGen так, чтобы в отдельном классе RepeaterGenGradGen пропала необходимость
 
     def init_attrs(self, **kwargs):
         super().init_attrs(**kwargs)
 
         self.itersleft = 0
-        self.subgen = self.__chk_subgen(kwargs.get('subgen', None))
+        self.subgen = self.param_get_grad(kwargs, 'subgen', None, self.check_isgrad)
         self.__accum = None
 
     def get_disp_name(self):
@@ -966,6 +1028,52 @@ class RepeaterGenGradGen(GradGen):
             self.itersleft -= 1
 
         return self.__accum
+
+
+class EnvelopeGenGradGen(GradGen):
+    """Генератор, амплитудно модулирующий выхлоп одного генератора
+    выхлопом другого.
+
+    Как и RepeaterGenGradGen, не является потомком GenGradGen.
+
+    Внимание! Экспериментальный генератор, может быть перделан
+    полностью или удалён!"""
+
+    def init_attrs(self, **kwargs):
+        """Инициализация полей.
+
+        Параметры (в дополнение к наследственным):
+            sourcegen   - генератор значений, потомок класса GradGen;
+            envelopegen - генератор значений огибающей, потомок класса GradGen;
+                          если envelopegen.get_next_value() возвращает меньше
+                          значений, чем sourcegen.get_next_value() -
+                          значения "огибающей" используются циклически
+                          до заполнения."""
+
+        super().init_attrs(**kwargs)
+
+        self.sourcegen = self.param_get_grad(kwargs, 'sourcegen', None, self.check_isgrad)
+        self.envelopegen = self.param_get_grad(kwargs, 'envelopegen', None, self.check_isgrad)
+
+    def get_next_value(self):
+        channels = unwrap_lol(self.sourcegen.get_next_value())
+        envels = unwrap_lol(self.envelopegen.get_next_value())
+
+        clen = len(channels)
+        elen = len(envels)
+
+        retv = [0.0] * clen
+
+        for ixc, cv in enumerate(channels):
+            retv[ixc] = cv * envels[ixc % elen]
+
+        return retv
+
+    def get_disp_name(self):
+        return '%s(%s * %s)' % (
+                    self.name,
+                    self.sourcegen.get_disp_name(),
+                    self.envelopegen.get_disp_name())
 
 
 class SequenceGenGradGen(GenGradGen):

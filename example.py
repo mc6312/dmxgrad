@@ -56,6 +56,12 @@ def demo_SineWaveGradGen():
     return ggen
 
 
+def demo_EnvelopeGenGradGen():
+    return EnvelopeGenGradGen(sourcegen=demo_SineWaveGradGen(),
+                              envelopegen=demo_SquareWaveGradGen(),
+                              name='envelope')
+
+
 def demo_LineGradGen():
     return LineGradGen(length=GradPosition.compute_length(0.5, GradSender.DEFAULT_TICK_INTERVAL),
                 channelsFrom=(0, 1, 0),
@@ -99,14 +105,12 @@ def demo_GenGradGen():
         sparklegen.add_subgen(sgN)
 
     seqgen = SequenceGenGradGen(mode=GradPosition.STOP,
+        subgen=(ImageGradGen(image=Image.open('example_start.png'),
+                             name='sparkle_begin'),
+                sparklegen,
+                ImageGradGen(image=Image.open('example_completion.png'),
+                             name='sparkle_end')),
         name='sequence')
-
-    seqgen.add_subgen(ImageGradGen(image=Image.open('example_start.png'),
-                                    name='sparkle_begin'),
-                      sparklegen,
-                      ImageGradGen(image=Image.open('example_completion.png'),
-                                    name='sparkle_end'),
-                      )
 
     return seqgen
 
@@ -115,6 +119,7 @@ def choose_demonstration():
     demos = (('LineGradGen', demo_LineGradGen),
              ('SineWaveGradGen', demo_SineWaveGradGen),
              ('SquareWaveGradGen', demo_SquareWaveGradGen),
+             ('EnvelopeGenGradGen', demo_EnvelopeGenGradGen),
              ('NoiseGen', demo_NoiseGen),
              ('ImageGradGen', demo_ImageGradGen),
              ('GenGradGen', demo_GenGradGen),
