@@ -57,8 +57,8 @@ def demo_SineWaveGradGen():
 
 
 def demo_EnvelopeGenGradGen():
-    return EnvelopeGenGradGen(sourcegen=demo_SineWaveGradGen(),
-                              envelopegen=demo_SquareWaveGradGen(),
+    return EnvelopeGenGradGen(sourcegen=demo_NoiseGen(),
+                              envelopegen=demo_LineGradGen(),
                               name='envelope')
 
 
