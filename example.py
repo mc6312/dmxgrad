@@ -45,7 +45,7 @@ def setup_sparkle_demo():
 
 
 def demo_SineWaveGradGen():
-    ggen = SineWaveGradGen(length=GradPosition.compute_length(1, GradSender.DEFAULT_TICK_INTERVAL),
+    ggen = SineWaveGradGen(length='1',
                 levels=(1.0, 1.0, 1.0),
                 lowLevels=(0.0, 0.0, 0.5),
                 phases=(0.0, 0.33, 0.66),
@@ -63,7 +63,7 @@ def demo_EnvelopeGenGradGen():
 
 
 def demo_LineGradGen():
-    return LineGradGen(length=GradPosition.compute_length(0.5, GradSender.DEFAULT_TICK_INTERVAL),
+    return LineGradGen(length=0.5,
                 channelsFrom=(0, 1, 0),
                 channelsTo=(1, 0, 1),
                 mode=GradPosition.REPEAT,
@@ -80,7 +80,7 @@ def demo_SquareWaveGradGen():
 
     for i in range(3):
         dgen.add_subgen(SquareWaveGradGen(phases=0.33 * i,
-                            length=GradPosition.compute_length(1, GradSender.DEFAULT_TICK_INTERVAL),
+                            length='1',
                             mode=GradPosition.REPEAT,
                             name='square#%d' % i))
 
@@ -131,16 +131,12 @@ def choose_demonstration():
     for ix, (dname, _) in enumerate(demos, 1):
         print('%d. %s' % (ix, dname))
 
-    try:
-        dnum = int(input('Enter demonstration number, then press RETURN: '))
+    dnum = int(input('Enter demonstration number, then press RETURN: '))
 
-        if dnum >=1 and dnum <= len(demos):
-            dfunc = demos[dnum - 1][1]
-            print(dfunc)
-            return dfunc()
-    except Exception as ex:
-        print(ex)
-        return
+    if dnum >=1 and dnum <= len(demos):
+        dfunc = demos[dnum - 1][1]
+        print(dfunc.__name__)
+        return dfunc()
 
 
 def main():

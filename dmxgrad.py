@@ -29,7 +29,7 @@
     along with this program.  If not, see <http://www.gnu.org/licenses/>."""
 
 
-REVISION = 14
+REVISION = 15
 
 
 from math import sin, pi
@@ -278,68 +278,92 @@ class GradPosition():
                   "задом наперёд" до достижения value==0, и т.д.;
         RANDOM  - возвращает случайное значение 0 <= N < length."""
 
-    STOP, REPEAT, MIRROR, RANDOM = range(4)
+    __MODES = 4
+    __MIN_MODE = 0
+    __MAX_MODE = __MODES - 1
+    STOP, REPEAT, MIRROR, RANDOM = range(__MODES)
 
-    def __init__(self, length=1, mode=STOP, direction=1):
-        """Инициализация счётчика.
+    DEFAULT_TICK_INTERVAL = 1000/30  # 30 fps в миллисекундах
+
+    def __init__(self, length=1, mode=STOP, direction=1, interval=DEFAULT_TICK_INTERVAL):
+        """Инициализация счётчика положения градиента с указанными
+        параметрами.
 
         Параметры:
-            length - положительное целое >0, количество значений;
+            l, interval     - см. описание метода set_length();
             mode, direction - см. описание соотв. полей класса."""
 
+        self.set_length(length, interval)
+        self.set_mode(mode)
+        self.set_direction(direction)
+
         self.ncycles = 0
-
-        self.set_length(length)
-
-        if direction in (-1, 1):
-            self.direction = direction
-        else:
-            raise ValueError('%s.__init__(): invalid "direction" value (must be 1 or -1)' % self.__class__.__name__)
-
-        self.mode = mode
-
-        self.begin()
 
     def __repr__(self):
         return repr_to_str(self)
 
-    def set_length(self, l):
+    def set_direction(self, d=1):
+        if d == True or d >= 1:
+            d = 1
+        elif d == False or d < 0:
+            d = -1
+        else:
+            raise ValueError('%s.set_direction(): invalid direction value (must be 1 or -1, or boolean)' % self.__class__.__name__)
+
+        self.direction = d
+
+    def set_mode(self, m=STOP):
+        if m < self.__MIN_MODE or m > self.__MAX_MODE:
+            raise ValueError('%s.set_mode(): invalid mode value' % self.__class__.__name__)
+
+        self.mode = m
+
+    def set_length(self, l=1, interval=DEFAULT_TICK_INTERVAL):
         """Установка количества значений.
 
-        nv      - положительное целое (количество значений) или кортеж/список/...,
-                  длину которого следует использовать."""
+        Параметры:
+            l        - положительное целое (количество значений),
+                       или кортеж/список/..., длину которого следует использовать,
+                       или float - длительность в секундах,
+                       или строка в формате '[ЧЧ:[ММ:]СС', которая будет
+                       преобразована опять же в секунды;
+            interval - None, int или float - количество обращений
+                       к устройству DMX512 в секунду;
+                       если указано None или значение <= 0 - используется
+                       значение по умолчанию (DEFAULT_TICK_INTERVAL),
+                       иначе - указанное значение ."""
 
-        if not isinstance(l, int):
+        if interval is None or interval <= 0:
+            interval = self.DEFAULT_TICK_INTERVAL
+
+        __BAD_LENGTH_VALUE = '%s.set_length(): length must be > 0' % self.__class__.__name__
+
+        if isinstance(l, int):
+            if l <= 0:
+                raise ValueError(__BAD_LENGTH_VALUE)
+
+            self.length = l
+        elif isinstance(l, float):
+            # уже в секундах
+            pass
+        elif isinstance(l, str):
+            ts = l.split(':', 2)
+            l = 0
+            m = 1
+
+            while ts:
+                l += int(ts.pop()) * m
+                m *= 60
+        else:
             try:
                 l = len(l)
             except:
-                raise ValueError('%s.set_length(): invalid type of "length" parameter' % self.__class__.__name__)
+                raise ValueError('%s.set_length(): invalid type of "l" parameter' % self.__class__.__name__)
 
         if l < 0:
-            raise ValueError('%s.set_length(): length must be positive integer' % self.__class__.__name__)
+            raise ValueError(__BAD_LENGTH_VALUE)
 
-        self.length = l
-        self.begin()
-
-    @staticmethod
-    def compute_length(seconds, sendint):
-        """Расчёт количества шагов градиента на основе
-        длительности в секундах и интервала между обращениями
-        к устройству DMX512.
-
-        Параметры:
-            seconds - int или float, длительность в секундах;
-            sendint - int или float, количество обращений к устройству в секунду.
-
-        Возвращает целое число."""
-
-        return int(1000 * seconds / sendint)
-
-    def set_length_from_time(self, seconds, sendint):
-        """Установка поля length на основе длительности.
-        См. также метод compute_length()."""
-
-        self.set_length(self.compute_length(seconds, sendint))
+        self.length = int(1000 * l / interval)
 
     def begin(self):
         """Установка полей в начальные значения"""
@@ -1083,10 +1107,10 @@ class SequenceGenGradGen(GenGradGen):
     По окончании списка генераторов перебор начинается сначала."""
 
     def init_attrs(self, **kwargs):
-        super().init_attrs(**kwargs)
-
         self.activeGen = None
         self.activeItrs = 0
+
+        super().init_attrs(**kwargs)
 
     def __set_active_gen(self):
         if self.generators:
@@ -1132,7 +1156,6 @@ class SequenceGenGradGen(GenGradGen):
 
 
 class GradSender():
-    DEFAULT_TICK_INTERVAL = 1000/30  # 30 fps в миллисекундах
     DEFAULT_UNIVERSE = 1
 
     """Обёртка над обёрткой для кормления DMX512-совместимых устройств
@@ -1160,7 +1183,7 @@ class GradSender():
         self.generator = kwargs.get('generator')
         self.universe = kwargs.get('universe', self.DEFAULT_UNIVERSE)
         self.iterations = kwargs.get('iterations', None)
-        self.interval = kwargs.get('interval', self.DEFAULT_TICK_INTERVAL)
+        self.interval = kwargs.get('interval', GradPosition.DEFAULT_TICK_INTERVAL)
         self.fixrange = kwargs.get('fixrange', False)
 
         self.lastState = None
