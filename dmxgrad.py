@@ -29,7 +29,7 @@
     along with this program.  If not, see <http://www.gnu.org/licenses/>."""
 
 
-REVISION = 15
+REVISION = 16
 
 
 from math import sin, pi
@@ -436,7 +436,7 @@ class GradGen():
     DEFAULT_MODE = GradPosition.STOP
 
     @staticmethod
-    def param_get_grad(args, pname, fallback=None, fchkval=None):
+    def kwargs_get(args, pname, fallback=None, fchkval=None):
         """Получение параметра из словаря.
 
         Метод предназначен для обработки параметров в конструкторах
@@ -527,7 +527,7 @@ class GradGen():
         return repr_to_str(self)
 
     @staticmethod
-    def param_get_tof(args, pname, fallback, tolength=None, chkval=None):
+    def kwargs_get_tof(args, pname, fallback, tolength=None, chkval=None):
         """Получение и нормализация параметра из словаря.
 
         Метод предназначен для обработки параметров конструкторов классов.
@@ -653,8 +653,8 @@ class LineGradGen(BufferedGradGen):
 
         super().init_attrs(**kwargs)
 
-        self.channelsFrom = self.param_get_tof(kwargs, 'channelsFrom', (0,), None, check_float_range_1)
-        self.channelsTo = self.param_get_tof(kwargs, 'channelsTo', (MAX_VALUE,), len(self.channelsFrom), check_float_range_1)
+        self.channelsFrom = self.kwargs_get_tof(kwargs, 'channelsFrom', (0,), None, check_float_range_1)
+        self.channelsTo = self.kwargs_get_tof(kwargs, 'channelsTo', (MAX_VALUE,), len(self.channelsFrom), check_float_range_1)
 
     def reset(self):
         super().reset()
@@ -766,6 +766,28 @@ class ImageGradGen(BufferedGradGen):
             y += dy
 
 
+class GenRecorderGen(BufferedGradGen):
+    """Генератор, однократно засасывающий себе в буфер выхлоп
+    другого генератора, и воспроизводящий эти значения.
+
+    Предназначен для буферизации выхлопов сложного нагромождения
+    вложенных генераторов, если вдруг не хочется их гонять по циклу
+    много раз."""
+
+    def init_attrs(self, **kwargs):
+        super().init_attrs(**kwargs)
+
+        self.sourcegen = self.kwargs_get(kwargs, 'sourcegen')
+
+    def reset(self):
+        super().reset()
+
+        n = self.sourcegen.get_n_values()
+        while n > 0:
+            self.buffer.append(unwrap_lol(self.sourcegen.get_next_value()))
+            n -= 1
+
+
 class ConstantGradGen(GradGen):
     """Псевдо-генератор, выдающий постоянные значения.
 
@@ -779,7 +801,7 @@ class ConstantGradGen(GradGen):
 
         super().init_attrs(**kwargs)
 
-        self.values = self.param_get_tof(kwargs, 'value', (0, ))
+        self.values = self.kwargs_get_tof(kwargs, 'value', (0, ))
 
     def get_next_value(self):
         return self.values
@@ -798,9 +820,9 @@ class NoiseGen(GradGen):
     def init_attrs(self, **kwargs):
         super().init_attrs(**kwargs)
 
-        self.minValues = self.param_get_tof(kwargs, 'minValues', (0.0, ),
+        self.minValues = self.kwargs_get_tof(kwargs, 'minValues', (0.0, ),
                             None, check_float_range_1)
-        self.maxValues = self.param_get_tof(kwargs, 'maxValues', (1.0, ),
+        self.maxValues = self.kwargs_get_tof(kwargs, 'maxValues', (1.0, ),
                             len(self.minValues), check_float_range_1)
 
     def reset(self):
@@ -848,14 +870,14 @@ class WaveGradGen(BufferedGradGen):
 
         super().init_attrs(**kwargs)
 
-        self.levels = self.param_get_tof(kwargs, 'levels', (1.0, ), None, check_float_range_1)
+        self.levels = self.kwargs_get_tof(kwargs, 'levels', (1.0, ), None, check_float_range_1)
         _ll = len(self.levels)
 
-        self.lowLevels = self.param_get_tof(kwargs, 'lowLevels', (0.0, ), _ll, check_float_range_1)
+        self.lowLevels = self.kwargs_get_tof(kwargs, 'lowLevels', (0.0, ), _ll, check_float_range_1)
 
-        self.phases = self.param_get_tof(kwargs, 'phases', (0.0, ), _ll, check_float_range_1)
+        self.phases = self.kwargs_get_tof(kwargs, 'phases', (0.0, ), _ll, check_float_range_1)
 
-        self.periods = self.param_get_tof(kwargs, 'periods', (1.0, ), _ll, check_float_positive)
+        self.periods = self.kwargs_get_tof(kwargs, 'periods', (1.0, ), _ll, check_float_positive)
 
 
 class SineWaveGradGen(WaveGradGen):
@@ -904,7 +926,7 @@ class SquareWaveGradGen(WaveGradGen):
 
         __DEF_DC = 1.0
 
-        self.dutyCycles = self.param_get_tof(kwargs,
+        self.dutyCycles = self.kwargs_get_tof(kwargs,
             'dutyCycles',
             (__DEF_DC, ),
             len(self.levels),
@@ -1025,7 +1047,7 @@ class RepeaterGenGradGen(GradGen):
         super().init_attrs(**kwargs)
 
         self.itersleft = 0
-        self.subgen = self.param_get_grad(kwargs, 'subgen', None, self.check_isgrad)
+        self.subgen = self.kwargs_get(kwargs, 'subgen', None, self.check_isgrad)
         self.__accum = None
 
     def get_disp_name(self):
@@ -1076,8 +1098,8 @@ class EnvelopeGenGradGen(GradGen):
 
         super().init_attrs(**kwargs)
 
-        self.sourcegen = self.param_get_grad(kwargs, 'sourcegen', None, self.check_isgrad)
-        self.envelopegen = self.param_get_grad(kwargs, 'envelopegen', None, self.check_isgrad)
+        self.sourcegen = self.kwargs_get(kwargs, 'sourcegen', None, self.check_isgrad)
+        self.envelopegen = self.kwargs_get(kwargs, 'envelopegen', None, self.check_isgrad)
 
     def get_next_value(self):
         channels = unwrap_lol(self.sourcegen.get_next_value())
