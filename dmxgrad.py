@@ -29,7 +29,7 @@
     along with this program.  If not, see <http://www.gnu.org/licenses/>."""
 
 
-REVISION = 16
+REVISION = 17
 
 
 from math import sin, pi
@@ -297,6 +297,8 @@ class GradPosition():
         self.set_mode(mode)
         self.set_direction(direction)
 
+        self.value = 0
+
         self.ncycles = 0
 
     def __repr__(self):
@@ -338,15 +340,18 @@ class GradPosition():
 
         __BAD_LENGTH_VALUE = '%s.set_length(): length must be > 0' % self.__class__.__name__
 
+        def __to_seconds(v):
+            return 1000 * v / interval
+
         if isinstance(l, int):
+            # указано целое значение - абсолютное значение для length
             if l <= 0:
                 raise ValueError(__BAD_LENGTH_VALUE)
-
-            self.length = l
         elif isinstance(l, float):
-            # уже в секундах
-            pass
+            # указано значение в секундах
+            l = __to_seconds(l)
         elif isinstance(l, str):
+            # указано значение в виде строки ЧЧ:ММ:СС для пересчёта в секунды
             ts = l.split(':', 2)
             l = 0
             m = 1
@@ -354,7 +359,11 @@ class GradPosition():
             while ts:
                 l += int(ts.pop()) * m
                 m *= 60
+
+            l = __to_seconds(l)
         else:
+            # предположительно указан список или другой тип "с длиной",
+            # кою длину и используем как значение для поля lentgh
             try:
                 l = len(l)
             except:
@@ -363,7 +372,7 @@ class GradPosition():
         if l < 0:
             raise ValueError(__BAD_LENGTH_VALUE)
 
-        self.length = int(1000 * l / interval)
+        self.length = int(l)
 
     def begin(self):
         """Установка полей в начальные значения"""
@@ -801,7 +810,7 @@ class ConstantGradGen(GradGen):
 
         super().init_attrs(**kwargs)
 
-        self.values = self.kwargs_get_tof(kwargs, 'value', (0, ))
+        self.values = self.kwargs_get_tof(kwargs, 'values', (0, ))
 
     def get_next_value(self):
         return self.values
@@ -1138,7 +1147,6 @@ class SequenceGenGradGen(GenGradGen):
         if self.generators:
             self.activeGen = self.generators[self.position.value]
             self.activeItrs = self.activeGen.get_n_values()
-            #print(f'{self.activeGen=}, {self.activeItrs=}')
         else:
             self.activeGen = None
             self.activeItrs = 0
@@ -1168,9 +1176,9 @@ class SequenceGenGradGen(GenGradGen):
 
         ret = self.activeGen.get_next_value()
 
-        if self.activeItrs:
-            self.activeItrs -= 1
-        else:
+        self.activeItrs -= 1
+
+        if self.activeItrs <= 0:
             self.position.next_value()
             self.__set_active_gen()
 
@@ -1193,9 +1201,6 @@ class GradSender():
                       установкой поля stop в True или вместе со скриптом);
         interval    - целое, интервал в миллисекундах между отправками
                       значений устройствам;
-        fixrange    - булевское значение; если True - значения, выдаваемые
-                      генераторами, принудительно загоняются в допустимый
-                      диапазон (см. описание функции grad_values_to_array);
         stop        - булевское значение, флаг прекращения работы цикла
                       в методе run()."""
 
@@ -1206,7 +1211,6 @@ class GradSender():
         self.universe = kwargs.get('universe', self.DEFAULT_UNIVERSE)
         self.iterations = kwargs.get('iterations', None)
         self.interval = kwargs.get('interval', GradPosition.DEFAULT_TICK_INTERVAL)
-        self.fixrange = kwargs.get('fixrange', False)
 
         self.lastState = None
 
