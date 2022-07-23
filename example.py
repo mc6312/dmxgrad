@@ -93,7 +93,7 @@ def demo_NoiseGen():
                 name='noise')
 
 
-def demo_GenGradGen():
+def demo_SequenceGenGradGen():
     sparklegen = SequenceGenGradGen(mode=GradPosition.RANDOM,
                     name='sparkle_sequence')
 
@@ -159,7 +159,7 @@ def choose_demonstration():
              ('EnvelopeGenGradGen', demo_EnvelopeGenGradGen),
              ('NoiseGen', demo_NoiseGen),
              ('ImageGradGen', demo_ImageGradGen),
-             ('GenGradGen', demo_GenGradGen),
+             ('SequenceGenGradGen', demo_SequenceGenGradGen),
              ('CrossfadeGenGradGen', demo_CrossfadeGenGradGen),
              )
 

@@ -975,11 +975,9 @@ class SquareWaveGradGen(WaveGradGen):
             self.buffer.append(chns)
 
 
-class GenGradGen(GradGen):
-    """Генератор, возвращающий значения от вложенных генераторов.
-
-    Внимание! Поля экземпляра класса GenGradGen (position и т.п.)
-    могут не использоваться классами-потомками.
+class GroupGenGradGen(GradGen):
+    """Надстройка над GradGen, предназначенная для издевательств
+    над несколькими равноправными генераторами.
 
     Поля (в дополнение к наследственным):
         generators  - список экземпляров потомков GradGen."""
@@ -1025,7 +1023,7 @@ class GenGradGen(GradGen):
             g.reset()
 
 
-class ParallelGenGradGen(GenGradGen):
+class ParallelGenGradGen(GroupGenGradGen):
     """Генератор, возвращающий сгруппированные значения
     от всех вложенных генераторов."""
 
@@ -1045,7 +1043,6 @@ class ParallelGenGradGen(GenGradGen):
 class RepeaterGenGradGen(GradGen):
     """Генератор, повторяющий вызов дочернего генератора указанное
     количество раз.
-    Не является потомком GenGradGen, несмотря на название класса.
     Наследственное поле "position" используется только как хранилище
     количества повторов, position.mode игнорируется.
     Временный класс-костыль до момента переделки Parallel/SequenceGenGradGen."""
@@ -1088,8 +1085,6 @@ class RepeaterGenGradGen(GradGen):
 class EnvelopeGenGradGen(GradGen):
     """Генератор, амплитудно модулирующий выхлоп одного генератора
     выхлопом другого.
-
-    Как и RepeaterGenGradGen, не является потомком GenGradGen.
 
     Внимание! Экспериментальный генератор, может быть перделан
     полностью или удалён!"""
@@ -1134,8 +1129,6 @@ class EnvelopeGenGradGen(GradGen):
 class CrossfadeGenGradGen(GradGen):
     """Генератор, смешивающий выхлопы двух генераторов с соотношением,
     определяемым третьим генератором.
-
-    Как и RepeaterGenGradGen, не является потомком GenGradGen.
 
     Внимание! Экспериментальный генератор, может быть перделан
     полностью или удалён!"""
@@ -1187,7 +1180,7 @@ class CrossfadeGenGradGen(GradGen):
                     self.balancegen.get_disp_name())
 
 
-class SequenceGenGradGen(GenGradGen):
+class SequenceGenGradGen(GroupGenGradGen):
     """Генератор, вызывающий вложенные генераторы поочерёдно.
     Количество последовательных вызовов каждого генератора
     соответствует значению соотв. position.length.
