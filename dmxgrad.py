@@ -1131,6 +1131,62 @@ class EnvelopeGenGradGen(GradGen):
                     self.envelopegen.get_disp_name())
 
 
+class CrossfadeGenGradGen(GradGen):
+    """Генератор, смешивающий выхлопы двух генераторов с соотношением,
+    определяемым третьим генератором.
+
+    Как и RepeaterGenGradGen, не является потомком GenGradGen.
+
+    Внимание! Экспериментальный генератор, может быть перделан
+    полностью или удалён!"""
+
+    def init_attrs(self, **kwargs):
+        """Инициализация полей.
+
+        Параметры (в дополнение к наследственным):
+            source1gen,
+            source2gen  - генераторы исходных значений, потомок класса GradGen;
+            balancegen  - генератор значений соотношения (перекрёстного
+                          затухания), потомок класса GradGen;
+                          выходное значение равно (s1v * (1-bv)) + (s2v * bv).
+
+        Внимание! Количество каналов (значений), возвращаемое методом
+        CrossfadeGenGradGen.get_next_value(), определяется количеством
+        значений, возвращаемых source1gen.get_next_value(), а значения
+        source2gen и balancegen используются циклически до заполнения."""
+
+        super().init_attrs(**kwargs)
+
+        self.source1gen = self.kwargs_get(kwargs, 'source1gen', None, self.check_isgrad)
+        self.source2gen = self.kwargs_get(kwargs, 'source2gen', None, self.check_isgrad)
+        self.balancegen = self.kwargs_get(kwargs, 'balancegen', None, self.check_isgrad)
+
+    def get_next_value(self):
+        src1v = unwrap_lol(self.source1gen.get_next_value())
+        src2v = unwrap_lol(self.source2gen.get_next_value())
+
+        balancev = unwrap_lol(self.balancegen.get_next_value())
+
+        s1len = len(src1v)
+        s2len = len(src2v)
+        blen = len(balancev)
+
+        retv = [0.0] * s1len
+
+        for ixc, s1v in enumerate(src1v):
+            bv = balancev[ixc % blen]
+            retv[ixc] = (s1v * (1.0 - bv)) + (src2v[ixc % s2len] * bv)
+
+        return retv
+
+    def get_disp_name(self):
+        return '%s(%s, %s, %s)' % (
+                    self.name,
+                    self.source1gen.get_disp_name(),
+                    self.source2gen.get_disp_name(),
+                    self.balancegen.get_disp_name())
+
+
 class SequenceGenGradGen(GenGradGen):
     """Генератор, вызывающий вложенные генераторы поочерёдно.
     Количество последовательных вызовов каждого генератора

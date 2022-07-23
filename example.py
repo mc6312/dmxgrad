@@ -115,6 +115,43 @@ def demo_GenGradGen():
     return seqgen
 
 
+def demo_CrossfadeGenGradGen():
+    pausegen = ConstantGradGen(length=0.5, values=0, name='pause')
+
+    def mksingen(n):
+        return SineWaveGradGen(length=1.0, levels=(1,), phases=(0,),
+                               mode=GradPosition.REPEAT,
+                               name='sine#%d' % n)
+
+    ch0gen = SequenceGenGradGen(subgen=(mksingen(1), pausegen, pausegen),
+                mode=GradPosition.REPEAT,
+                name='ch0seq')
+    ch1gen = SequenceGenGradGen(subgen=(pausegen, mksingen(2), pausegen),
+                mode=GradPosition.REPEAT,
+                name='ch1seq')
+    ch2gen = SequenceGenGradGen(subgen=(pausegen, pausegen, mksingen(3)),
+                mode=GradPosition.REPEAT,
+                name='ch2seq')
+
+    wavegen = ParallelGenGradGen(subgen=(ch0gen, ch1gen, ch2gen), name='par1-3')
+
+    noisegen = EnvelopeGenGradGen(sourcegen=NoiseGen(minValues=(0.3, 0.3, 0.3), maxValues=(1.0, 1.0, 1.0),
+                                                name='noise'),
+                                  envelopegen=LineGradGen(length=8.0, channelsFrom=(1.0,), channelsTo=(0.0,),
+                                                name='noisefade'),
+                                  name='envnoise')
+
+    maingen = CrossfadeGenGradGen(source1gen=noisegen,
+                                  source2gen=wavegen,
+                                  balancegen=LineGradGen(length=12.0,
+                                        channelsFrom=(0.0,),
+                                        channelsTo=(1.0,),
+                                        name='mainbalance'),
+                                  name='crossfade')
+
+    return maingen
+
+
 def choose_demonstration():
     demos = (('LineGradGen', demo_LineGradGen),
              ('SineWaveGradGen', demo_SineWaveGradGen),
@@ -123,6 +160,7 @@ def choose_demonstration():
              ('NoiseGen', demo_NoiseGen),
              ('ImageGradGen', demo_ImageGradGen),
              ('GenGradGen', demo_GenGradGen),
+             ('CrossfadeGenGradGen', demo_CrossfadeGenGradGen),
              )
 
     print('DMXGRAD r%s demonstration:' % REVISION)
