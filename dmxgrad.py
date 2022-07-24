@@ -29,7 +29,7 @@
     along with this program.  If not, see <http://www.gnu.org/licenses/>."""
 
 
-REVISION = 17
+REVISION = 18
 
 
 from math import sin, pi
@@ -283,7 +283,7 @@ class GradPosition():
     __MAX_MODE = __MODES - 1
     STOP, REPEAT, MIRROR, RANDOM = range(__MODES)
 
-    DEFAULT_TICK_INTERVAL = 1000/30  # 30 fps в миллисекундах
+    DEFAULT_TICK_INTERVAL = 1000 / 30  # 30 fps в миллисекундах
 
     def __init__(self, length=1, mode=STOP, direction=1, interval=DEFAULT_TICK_INTERVAL):
         """Инициализация счётчика положения градиента с указанными
@@ -340,8 +340,8 @@ class GradPosition():
 
         __BAD_LENGTH_VALUE = '%s.set_length(): length must be > 0' % self.__class__.__name__
 
-        def __to_seconds(v):
-            return 1000 * v / interval
+        def __from_seconds(v):
+            return round(1000 * v / interval)
 
         if isinstance(l, int):
             # указано целое значение - абсолютное значение для length
@@ -349,7 +349,7 @@ class GradPosition():
                 raise ValueError(__BAD_LENGTH_VALUE)
         elif isinstance(l, float):
             # указано значение в секундах
-            l = __to_seconds(l)
+            l = __from_seconds(l)
         elif isinstance(l, str):
             # указано значение в виде строки ЧЧ:ММ:СС для пересчёта в секунды
             ts = l.split(':', 2)
@@ -360,7 +360,7 @@ class GradPosition():
                 l += int(ts.pop()) * m
                 m *= 60
 
-            l = __to_seconds(l)
+            l = __from_seconds(l)
         else:
             # предположительно указан список или другой тип "с длиной",
             # кою длину и используем как значение для поля lentgh
@@ -1038,6 +1038,29 @@ class ParallelGenGradGen(GroupGenGradGen):
 
     def get_next_value(self):
         return [g.get_next_value() for g in self.generators]
+
+
+class MixGenGradGen(ParallelGenGradGen):
+    """Генератор, складывающий выхлопы вложенных генераторов.
+
+    Количество каналов "выхлопа" определяется количеством каналов
+    генератора, у которого их больше всего. Значения от прочих
+    генераторов используются циклически."""
+
+    def get_next_value(self):
+        accum = [0.0] * self.position.length
+
+        for gen in self.generators:
+            genvals = unwrap_lol(gen.get_next_value())
+            ngv = len(genvals)
+
+            for ci, accv in enumerate(accum):
+                accum[ci] = accv + genvals[ci % ngv]
+
+        for ci, accv in enumerate(accum):
+            accum[ci] = accv / self.position.length
+
+        return accum
 
 
 class RepeaterGenGradGen(GradGen):
