@@ -29,7 +29,7 @@
     along with this program.  If not, see <http://www.gnu.org/licenses/>."""
 
 
-REVISION = 18
+REVISION = 19
 
 
 from math import sin, pi
@@ -283,7 +283,8 @@ class GradPosition():
     __MAX_MODE = __MODES - 1
     STOP, REPEAT, MIRROR, RANDOM = range(__MODES)
 
-    DEFAULT_TICK_INTERVAL = 1000 / 30  # 30 fps в миллисекундах
+    DEFAULT_FPS = 30
+    DEFAULT_TICK_INTERVAL = 1000 / DEFAULT_FPS  # в миллисекундах
 
     def __init__(self, length=1, mode=STOP, direction=1, interval=DEFAULT_TICK_INTERVAL):
         """Инициализация счётчика положения градиента с указанными
@@ -621,6 +622,7 @@ class BufferedGradGen(GradGen):
         d = kwargs.get('data', None)
         if d:
             self.set_buffer_data(d)
+            self.clearBuf = False
 
     def reset(self):
         """Заполнение списка buffer сгенерированными значениями,
@@ -1048,7 +1050,9 @@ class MixGenGradGen(ParallelGenGradGen):
     генераторов используются циклически."""
 
     def get_next_value(self):
-        accum = [0.0] * self.position.length
+        ngens = max([g.get_n_values() for g in self.generators])
+
+        accum = [0.0] * ngens
 
         for gen in self.generators:
             genvals = unwrap_lol(gen.get_next_value())
